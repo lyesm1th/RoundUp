@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="674" height="467" viewBox="0 0 674 467">
+  <rect width="674" height="467" fill="#10282d" rx="8"/>
+  <path d="M8 0h658q8 0 8 8v0H0V8q0-8 8-8Z" fill="#78e0af"/>
+  <image x="36" y="42" width="101" height="101" xlink:href="launcher/assets/geozamir-mark.png"/>
+  <g font-family="Segoe UI,Arial,sans-serif">
+    <text x="158" y="85" font-size="38" fill="#f4fff9" font-weight="700">ГеоЗамір</text>
+    <text x="159" y="120" font-size="15" fill="#b8d6d0">Інтерактивна карта, що пам’ятає кожну забудову</text>
+    <text x="159" y="159" font-size="12" font-weight="700" fill="#7bddb0">●  ОСОБИСТИЙ РЕЖИМ  ·  ДАНІ НА ВАШОМУ ПК</text>
+    <rect x="36" y="203" width="602" height="121" rx="12" fill="#1a3a3f"/>
+    <text x="57" y="238" font-size="17" font-weight="700" fill="#f3fff8">Встановлена версія: 5.5.0</text>
+    <text x="57" y="272" font-size="18" font-weight="700" fill="#91edba">Програма готова до запуску</text>
+    <text x="57" y="302" font-size="13" fill="#9fc2bb">Новіших збірок у локальному каналі немає</text>
+    <rect x="36" y="352" width="426" height="62" rx="9" fill="#8ee3b9"/>
+    <text x="249" y="391" font-size="20" fill="#123c37" font-weight="700" text-anchor="middle">▶  Запустити ГеоЗамір</text>
+    <rect x="480" y="352" width="158" height="62" rx="9" fill="#19393d" stroke="#4a7772"/>
+    <text x="559" y="391" font-size="17" fill="#dbf5e8" text-anchor="middle">↻  Перевірити</text>
+    <text x="37" y="450" font-size="12" fill="#83a6a0">Оновлення перевіряються лише локально · хмару не підключено</text>
+  </g>
+</svg>
