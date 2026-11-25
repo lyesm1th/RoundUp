@@ -35,7 +35,6 @@ jobs:
           Copy-Item src/RoundUp.UI dist/app/ui -Recurse -Force
           New-Item -ItemType Directory -Force dist/app/ui/vendor | Out-Null
           Copy-Item legacy/extracted_runtime/vendor/jszip.min.js dist/app/ui/vendor/jszip.min.js
-          Copy-Item legacy/extracted_runtime/favicon.svg dist/app/ui/favicon.svg
           $legacyDir = Join-Path $env:RUNNER_TEMP 'roundup-legacy'
           Expand-Archive legacy/GeoZamir_5.5_GUI_Launcher_Windows.zip $legacyDir -Force
           $cores = @(Get-ChildItem $legacyDir -Recurse -File -Filter 'GeoZamir.exe')
