@@ -1,0 +1,156 @@
+﻿<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#12272b">
+  <title>ГеоЗамір 5.5 | Карта забудов</title>
+  <script>window.GEOZAMIR_DESKTOP=true;window.GEOZAMIR_TOKEN="516da427e23256b973c69bb52a20b0d4167d955c86b582cc";</script>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-shell" id="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-7.2 8-13a8 8 0 1 0-16 0c0 5.8 8 13 8 13Z"/><circle cx="12" cy="9" r="2.9"/></svg></div>
+      <div class="brand-copy"><strong>Гео<span>Замір</span></strong><small>Карта забудов · 5.3</small></div>
+    </div>
+    <div class="header-location"><span class="pulsedot"></span> Львівська область <span class="divider-small"></span> <span id="headerCount">0 забудов</span></div>
+    <div class="top-actions">
+      <div class="project-dropdown">
+        <button class="btn btn-ghost project-menu-trigger" id="projectMenuBtn" title="Керування проєктами">▦ <span id="activeProjectName">Мій проєкт</span> ▾</button>
+        <div class="project-menu" id="projectMenu" hidden>
+          <div class="project-menu-heading">ПРОЄКТИ</div>
+          <div id="projectOptions" class="project-options"></div>
+          <div class="project-menu-separator"></div>
+          <button id="projectCreateBtn">✚ Створити новий проєкт</button>
+          <button id="projectRenameBtn">✎ Перейменувати поточний проєкт</button>
+          <button id="projectWindowBtn">▣ Відкрити поточний проєкт у новому вікні</button>
+          <button id="projectOpenBtn">⇧ Імпортувати проєкт із резервної копії / ZIP</button>
+          <button id="projectBackupBtn">⇩ Зберегти проєкт (копія)</button>
+        </div>
+      </div>
+      <div class="project-dropdown tools-dropdown">
+        <button class="btn btn-ghost" id="toolsMenuBtn" aria-expanded="false" aria-controls="toolsMenu">☰ Дії ▾</button>
+        <div class="project-menu tools-menu" id="toolsMenu" hidden>
+          <div class="project-menu-heading">КЕРУВАННЯ</div>
+          <button id="filesBtn">▣ Файли, приховані точки та кошик</button>
+          <button id="saveBtn" disabled>↓ Резервна копія проєкту</button>
+          <button id="helpBtn">? Інструкція</button>
+          <div class="project-menu-separator"></div>
+          <div class="project-menu-heading">ЕКСПОРТ</div>
+          <button id="csvBtn" disabled>↧ Дані в CSV / Excel</button>
+          <button id="geojsonBtn" disabled>↧ Точки в GeoJSON</button>
+          <div class="project-menu-separator"></div>
+          <label class="tools-radius" title="Радіус зіставлення нових GPS записів">Зіставляти GPS у радіусі
+            <select id="matchRadius" aria-label="Радіус зіставлення геоміток"><option value="10">10 м</option><option value="11">11 м</option><option value="12" selected>12 м</option><option value="13">13 м</option><option value="14">14 м</option><option value="15">15 м</option></select>
+          </label>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="addBtn"><span class="plus">+</span> <span>Додати архіви</span></button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-head">
+        <div class="eyebrow">ВАША КОЛЕКЦІЯ</div>
+        <div class="sidebar-title-line"><h1>Забудови та виїзди</h1><span class="count-badge" id="listCount">0</span></div>
+        <p>Виїзди та фотографії об’єднуються за геомітками.</p>
+      </div>
+      <div class="import-card" id="dropZone" role="button" tabindex="0" aria-label="Завантажити ZIP, JSON або HTML">
+        <div class="import-art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65"><path d="M12 15V3m0 0L7 8m5-5 5 5M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></div>
+        <strong>Перетягніть архіви сюди</strong><span>або натисніть, щоб вибрати файли</span>
+        <small>ZIP · JSON · HTML · кілька файлів одразу</small>
+      </div>
+      <div class="stat-row">
+        <div><span class="stat-num" id="statObjects">0</span><span class="stat-label">Забудов</span></div>
+        <div><span class="stat-num" id="statMeasures">0</span><span class="stat-label">Замірів</span></div>
+        <div><span class="stat-num" id="statPhotos">0</span><span class="stat-label">Фото</span></div>
+      </div>
+      <div class="list-controls">
+        <label class="search-field" aria-label="Пошук об'єктів">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+          <input id="searchInput" placeholder="Об'єкт, клієнт, номер..." autocomplete="off">
+          <button class="clear-search" id="clearSearch" hidden title="Очистити пошук">×</button>
+        </label>
+        <div class="filter-row primary-filters">
+          <select id="monthFilter" aria-label="Місяць зйомки або виїзду"><option value="">Усі місяці</option></select>
+          <select id="localityFilter" aria-label="Фільтр населених пунктів"><option value="">Усі населені пункти</option></select>
+        </div>
+        <details class="advanced-filters" id="moreFilters">
+          <summary>Додаткові фільтри й сортування <span id="advancedFilterBadge"></span></summary>
+          <div class="filter-row"><select id="folderFilter" aria-label="Фільтр папок"><option value="">Усі папки</option></select><select id="archiveFilter" aria-label="Фільтр за архівом"><option value="">Усі архіви</option></select></div>
+          <div class="filter-row"><select id="typeFilter" aria-label="Фільтр типу"><option value="">Усі типи</option></select><select id="photoFilter" aria-label="Фільтр фотографій"><option value="all">Усі записи</option><option value="photo">Із фото</option><option value="no-geo">Без координат</option></select></div>
+          <div class="filter-row"><select id="sortSelect" aria-label="Сортування точок"><option value="date">За датою</option><option value="name">За назвою</option><option value="locality">За населеним пунктом</option><option value="archive">За архівом</option><option value="manual">Вручну ↑↓</option></select><button class="tiny-button clear-filters" id="resetFilters">Скинути фільтри</button></div>
+        </details>
+      </div>
+      <div class="route-banner"><div class="route-intro"><strong>Маршрут об’їзду</strong><span id="routeCount">0 точок обрано</span></div><div class="route-actions"><button class="tiny-button" id="selectVisibleBtn" title="Додати всі видимі точки з GPS до маршруту">+ Видимі</button><button class="tiny-button" id="clearRouteBtn" title="Зняти виділення">Очистити</button><button class="tiny-button primary" id="routeBtn" disabled>Маршрут ↗</button></div></div>
+      <div class="list-subhead"><span id="showingLabel">Немає об'єктів</span><button class="subtle-link" id="fitFromList" title="Показати всі об’єкти на карті">Показати всі ↗</button></div>
+      <div class="object-list" id="objectList"><div class="list-empty"><span class="list-empty-icon">⌁</span><strong>Тут з'являться ваші об'єкти</strong><span>Додайте один або декілька архівів замірів.</span></div></div>
+      <div class="sidebar-bottom"><span class="shield">◇</span><span>Об’єкти і фото зберігаються автоматично на вашому ПК. ZIP потрібен тільки для імпорту та резервної копії.</span></div>
+    </aside>
+
+    <section class="map-area" aria-label="Інтерактивна карта" id="mapArea">
+      <div class="map-canvas" id="mapCanvas" tabindex="0" aria-label="Карта. Перетягніть для переміщення, використайте колесо миші для масштабу">
+        <div class="map-background"></div>
+        <div class="map-tiles" id="mapTiles" aria-hidden="true"></div>
+        <div class="map-vector" id="mapVector" aria-hidden="true"></div>
+        <svg class="geo-grid" id="geoGrid" aria-hidden="true"></svg>
+        <div class="city-labels" id="cityLabels" aria-hidden="true"></div>
+        <div class="map-markers" id="mapMarkers"></div>
+      </div>
+      <div class="map-topbar">
+        <div class="map-heading"><span class="map-eyebrow">ГЕОГРАФІЯ ОБ'ЄКТІВ</span><strong>Карта Львівщини</strong></div>
+        <div class="map-tools">
+          <button class="map-pill" id="fitBtn" title="Показати всі точки">◎ <span>Всі точки</span></button>
+          <button class="map-pill" id="gridBtn" title="Перемкнути підкладку карти">▧ <span id="mapLayerLabel">Карта</span></button>
+        </div>
+      </div>
+      <div class="map-actions"><button id="zoomIn" aria-label="Збільшити масштаб">+</button><span id="zoomLevel" title="Рівень масштабу">9</span><button id="zoomOut" aria-label="Зменшити масштаб">−</button></div>
+      <div class="map-legend"><span class="legend-pin"></span><span>Забудова</span><span class="legend-multi">2+</span><span>Кілька виїздів на одну забудову</span><span style="margin-left:5px">Клік по групі: наблизити · Shift + клік: маршрут</span></div>
+      <div id="mapHint" class="map-hint" hidden></div>
+      <div class="map-attribution" id="attribution">© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a> · <span id="layerStatus">онлайн-підкладка</span> · <span id="vectorCredit" hidden><a href="https://openfreemap.org/" target="_blank" rel="noopener noreferrer">OpenFreeMap</a> / <a href="https://openmaptiles.org/" target="_blank" rel="noopener noreferrer">OpenMapTiles</a></span></div>
+      <div class="hover-card" id="hoverCard" hidden></div>
+      <div class="cluster-picker" id="clusterPicker" hidden></div>
+      <div class="map-empty-state" id="mapEmpty"><span class="map-empty-pin">⌖</span><strong>Ваша карта об'єктів чекає на першу точку</strong><p>Додайте архів із координатами. Геомітки з'являться тут автоматично.</p><button class="btn btn-primary" id="emptyAddBtn">+ Завантажити архів</button></div>
+    </section>
+
+    <aside class="inspector" id="inspector">
+      <div class="inspector-empty" id="inspectorEmpty"><div class="inspector-empty-art">⌖</div><div class="eyebrow">КАРТКА ОБ'ЄКТА</div><h2>Виберіть точку на карті</h2><p>Тут з’явиться хронологія виїздів, фото з датами, заміри та примітки.</p></div>
+      <div id="inspectorContent" hidden></div>
+    </aside>
+  </main>
+  <div class="mobile-nav"><button id="mobileList">☷ <span>Об'єкти</span></button><button id="mobileMap" class="active">⌖ <span>Карта</span></button><button id="mobileDetails">▤ <span>Деталі</span></button></div>
+</div>
+<input id="fileInput" type="file" accept=".zip,.json,.html,.htm" multiple hidden>
+<input id="projectOpenInput" type="file" accept=".zip,.json,.html,.htm" hidden>
+<div class="drag-overlay" id="dragOverlay" hidden><div class="drag-overlay-inner">⇧<strong>Відпустіть файли</strong><span>ZIP · JSON · HTML</span></div></div>
+<div class="busy-backdrop" id="busy" hidden><div class="busy-card"><div class="spinner"></div><strong id="busyText">Обробка архівів...</strong><span id="busyProgress">Завантаження фотографій і даних</span></div></div>
+<div class="modal-backdrop" id="projectNameModal" hidden>
+  <div class="modal project-name-modal" role="dialog" aria-modal="true" aria-labelledby="projectNameHeading">
+    <button class="modal-close" id="projectNameClose" aria-label="Закрити">×</button>
+    <div class="eyebrow">КЕРУВАННЯ ПРОЄКТАМИ</div>
+    <h2 id="projectNameHeading">Новий проєкт</h2>
+    <p class="manage-intro" id="projectNameHint">Проєкт створить власне локальне сховище для точок, фотографій і маршрутів.</p>
+    <form id="projectNameForm" class="project-name-form">
+      <label>Назва проєкту<input id="projectNameInput" maxlength="160" placeholder="Наприклад: Об'їзд Львівщини · листопад" required></label>
+      <div class="project-name-actions"><button class="btn btn-outline" type="button" id="projectNameCancel">Скасувати</button><button class="btn btn-primary" type="submit" id="projectNameSave">Створити проєкт</button></div>
+    </form>
+  </div>
+</div>
+<div class="modal-backdrop" id="editModal" hidden><div class="modal manage-modal"><button class="modal-close" id="editClose" aria-label="Закрити">×</button><div class="eyebrow">РЕДАГУВАННЯ ЗАПИСУ</div><h2>Дані об’єкта</h2><form id="editForm" class="edit-form"><label>Назва об’єкта<input id="editTitle" maxlength="200" placeholder="Наприклад: Ворота, вул. Шевченка 10"></label><label>Населений пункт<input id="editLocality" maxlength="120" placeholder="Наприклад: Львів, Пустомити, Солонка"></label><label>Замовник<input id="editClient" maxlength="150"></label><label>Телефон<input id="editPhone" maxlength="80"></label><label>Коментар<textarea id="editNote" rows="3" maxlength="3000"></textarea></label><div class="edit-bottom"><small>Зміни автоматично збережуться у вашій базі.</small><button type="submit" class="btn btn-primary">Зберегти</button></div></form></div></div>
+<div class="modal-backdrop" id="filesModal" hidden><div class="modal manage-modal"><button class="modal-close" id="filesClose" aria-label="Закрити">×</button><div class="eyebrow">ЛОКАЛЬНЕ СХОВИЩЕ</div><h2>Файли та папки</h2><p class="manage-intro">Архів може містити сотні точок. «Без ZIP» залишає всю інформацію та фотографії у проєкті, вилучаючи лише копію вихідного архіву. Хрестик видаляє архівну групу разом з усіма її точками.</p><div class="manager-toolbar"><button class="btn btn-outline" id="newFolderBtn">+ Нова папка</button><button class="btn btn-outline" id="restoreBtn">↑ Відновити копію</button><button class="btn btn-outline" id="backupFilesBtn">↓ Резервна копія</button><button class="btn btn-outline" id="openDataFolderBtn">▣ Відкрити папку проєкту</button></div><div class="manager-path" id="storagePath"></div><div id="managerList" class="manager-list"></div><section class="trash-area" id="trashArea" hidden><div class="trash-heading">Видалені точки <span id="trashCount">0</span></div><p class="manage-intro">Точки залишаються доступними для відновлення, доки ви не видалите їхню архівну групу.</p><div id="trashList" class="manager-list"></div></section><section class="trash-area" id="hiddenSitesArea" hidden><div class="trash-heading">Приховані забудови <span id="hiddenSitesCount">0</span></div><p class="manage-intro">Прибрані лише з карти поточного проєкту. Усі виїзди, фото та інші проєкти збережено.</p><div id="hiddenSitesList" class="manager-list"></div></section></div></div>
+<div class="modal-backdrop" id="routeModal" hidden><div class="modal manage-modal route-modal"><button class="modal-close" id="routeClose" aria-label="Закрити">×</button><div class="eyebrow">ПЛАН ОБ’ЇЗДУ</div><h2>Маршрут у Google Картах</h2><p class="manage-intro">Порядок точок визначається порядком вибору. Стрілками можна змінити черговість зупинок.</p><div class="route-settings"><label><input type="checkbox" id="routeFromHere"> Почати з мого поточного місця (Google Maps)</label><label>Формат маршруту <select id="routeCapacity"><option value="3">Сумісний із телефоном: до 3 проміжних зупинок</option><option value="9">Для браузера ПК: до 9 проміжних зупинок</option></select></label></div><div class="route-selected" id="routeSelected"></div><div id="routeLinks" class="route-links"></div><div class="manager-toolbar"><button class="btn btn-outline" id="routeCopy">⧉ Копіювати посилання</button><button class="btn btn-outline" id="routeCsv">↓ CSV для Google My Maps</button></div><small class="route-footnote">Google Maps відкриває маршрути за посиланнями. При великій кількості точок програма розбиває шлях на послідовні частини.</small></div></div>
+<input type="file" id="restoreInput" accept=".zip" hidden>
+<div class="modal-backdrop" id="helpModal" hidden><div class="modal"><button class="modal-close" id="helpClose" aria-label="Закрити">×</button><div class="eyebrow">ШВИДКИЙ СТАРТ</div><h2>Як працює ГеоЗамір</h2><ol><li><b>Автоматичне зіставлення GPS</b>: записи до 12 м один від одного потрапляють в історію однієї забудови. Радіус 10–15 м можна змінити біля карти. Зміни застосовуються до наступних імпортів.</li><li><b>Фото і примітки</b>: фото копіюються в локальний проєкт, можна змінювати дату і записувати примітки прямо у фотопереглядачі. Дата EXIF має пріоритет, за її відсутності використовується дата файлу в архіві (приблизна).</li><li><b>Розділення будівництв</b>: в історії натисніть «Відокремити», якщо поруч інша забудова. Можна приєднати запис до сусідньої забудови.</li><li><b>Додайте архіви ZIP</b> із програми «Замірник Lite». Можна обрати одразу десятки файлів.</li><li><b>Меню «Проєкти»</b> дозволяє створювати та перейменовувати незалежні бази, відкривати копії, перемикатися між проєктами та відкривати кілька проєктів у різних вікнах одночасно.</li><li><b>Мітки GPS</b> завжди розташовуються на реальних координатах. На віддаленій карті сусідні забудови збираються в групу з числом; звичайний клік наближає карту, а на максимальному масштабі відкриває список точок.</li><li><b>Shift + клік по точці або групі</b> додає або знімає її об’єкти з маршруту.</li><li><b>Клацніть точку</b> на карті або об'єкт у лівому списку. Наведення миші показує коротку картку.</li><li><b>Переглядайте заміри й фото</b> праворуч, відкривайте фото на весь екран та переходьте до Google Maps.</li><li><b>Файли зберігаються автоматично</b> у локальній базі; проєкт містить власні файли фотографій і замірів. Вихідні ZIP можна прибирати без втрати точок через «Файли» → «Без ZIP».</li><li><b>Для маршруту</b> відмітьте потрібні точки галочками і натисніть «Маршрут». За потреби згрупуйте записи за населеним пунктом.</li><li><b>Приховати з карти проєкту</b>: відкрийте забудову та оберіть «Прибрати з карти». Уся інформація залишиться у проєкті, а повернути мітку можна через «Дії» → «Файли» → «Приховані забудови».</li><li><b>Фільтр місяця</b>: зліва оберіть місяць; карта покаже забудови з фотографіями або виїздами цього місяця. Якщо дата фото неточна, відредагуйте її у фотопереглядачі.</li><li><b>Видалення</b> працює на двох рівнях: окрему точку можна прибрати з картки (оригінальний ZIP залишається), або видалити весь архів через «Файли».</li><li><b>Сортування</b> за датою, назвою, населеним пунктом, архівом чи вручну за допомогою стрілок у картці.</li><li><b>Резервна копія</b> створює ZIP для перенесення бази на інший ПК.</li></ol><div class="notice"><b>Який файл завантажувати?</b> Найкраще цілий ZIP: у ньому є <code>дані.json</code> і оригінальні фотографії. Окремий JSON містить дані, але не зображення. HTML-бланк зазвичай уже має фото всередині.</div><div class="notice subtle">Працює локально: дані залишаються у вашому сховищі на ПК. За замовчуванням використовуються векторні карти OpenFreeMap; резервна підкладка OpenStreetMap кешується локально. Якщо обидва постачальники недоступні, відображається координатна сітка. Всі заміри залишаються на ПК.</div></div></div>
+<div class="modal-backdrop photo-backdrop" id="photoModal" hidden><button id="photoClose" class="photo-close" aria-label="Закрити">×</button><button id="photoPrev" class="photo-arrow prev" aria-label="Попередня фотографія">‹</button><img id="fullPhoto" alt="Фотографія заміру"><button id="photoNext" class="photo-arrow next" aria-label="Наступна фотографія">›</button><span id="photoCounter" class="photo-counter"></span>
+  <div class="photo-meta-editor"><div class="photo-meta-top"><strong>Дата та примітка до фото</strong><span id="photoDateSource"></span></div>
+  <label>Дата <input type="date" id="photoDateInput"></label><label>Примітка <textarea id="photoNoteInput" maxlength="5000" rows="2" placeholder="Що видно на фото, які зміни відбулися…"></textarea></label><button class="btn btn-primary" id="photoSaveMeta">Зберегти примітку</button></div>
+</div>
+<div id="toastStack" class="toast-stack" aria-live="polite"></div>
+<script src="vendor/jszip.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
