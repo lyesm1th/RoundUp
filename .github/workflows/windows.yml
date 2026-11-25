@@ -67,6 +67,27 @@ jobs:
           path: dist/launcher/RoundUpLauncher.exe
           if-no-files-found: error
 
+  preview:
+    needs: launcher
+    if: contains(github.event.head_commit.message, '[launcher-preview]')
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download tested launcher
+        uses: actions/download-artifact@v4
+        with:
+          name: RoundUpLauncher-win-x64
+          path: dist/launcher
+
+      - name: Publish public launcher preview (no interpreter)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v0.0.1-launcher-preview dist/launcher/RoundUpLauncher.exe --title "RoundUp Launcher · preview" --notes "Тестовий графічний лаунчер із новим дизайном. Інтерпретатор RoundUp поки НЕ включено в цей реліз." --prerelease --target "${{ github.sha }}"
+
   release:
     needs: launcher
     if: startsWith(github.ref, 'refs/tags/v')
