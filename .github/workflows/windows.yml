@@ -54,7 +54,17 @@ jobs:
             }
             if ($process.HasExited) { break }
           }
+          $installed = Join-Path $env:LOCALAPPDATA 'RoundUp/RoundUpLauncher.exe'
+          if ($opened) {
+            for ($i = 0; $i -lt 20; $i++) {
+              if ((Test-Path $installed) -and ((Get-Item $installed).Length -eq (Get-Item $launcher).Length)) { break }
+              Start-Sleep -Seconds 1
+            }
+          }
           if (!$process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+          if ($opened -and (!(Test-Path $installed) -or (Get-Item $installed).Length -ne (Get-Item $launcher).Length)) {
+            throw "Launcher did not finish installation copy."
+          }
           if (!$opened) {
             if (Test-Path $log) { Get-Content $log }
             throw "RoundUp launcher GUI did not report opening within 30 seconds."
@@ -86,7 +96,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v0.0.1-launcher-preview dist/launcher/RoundUpLauncher.exe --title "RoundUp Launcher · preview" --notes "Тестовий графічний лаунчер із новим дизайном. Інтерпретатор RoundUp поки НЕ включено в цей реліз." --prerelease --target "${{ github.sha }}"
+          gh release create v0.0.2-launcher-preview dist/launcher/RoundUpLauncher.exe --title "RoundUp Launcher · preview" --notes "Тестовий графічний лаунчер із новим дизайном. Інтерпретатор RoundUp поки НЕ включено в цей реліз." --prerelease --target "${{ github.sha }}"
 
   release:
     needs: launcher
