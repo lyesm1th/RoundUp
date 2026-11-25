@@ -12,17 +12,21 @@ const context = {
   Ze: x => Number(x),
   j: p => Number.isFinite(p?.lat) && Number.isFinite(p?.lng) &&
     Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180,
-  be: {}
+  be: {},
+  qe: /\.(jpe?g|png|webp)$/i,
+  T: p => String(p).split(/[\\/]/).pop(),
+  x: true
 };
 vm.createContext(context);
 vm.runInContext(
   between("function Ot(", "function tt(") +
   between("function it(", "function ct(") +
   between("function ct(", "async function Ht(") +
-  "this.parser={Ot,it,ct};",
+  between("async function Ht(", "function lt(") +
+  "this.parser={Ot,it,ct,Ht};",
   context, {timeout:1500}
 );
-const { Ot, it, ct } = context.parser;
+const { Ot, it, ct, Ht } = context.parser;
 const near = (got, expected) => assert.ok(Math.abs(got - expected) < 0.00001,
   "Expected " + expected + ", got " + got);
 for (const input of [
@@ -58,4 +62,12 @@ assert.equal(item.meta.manager,"Марія");
 assert.equal(item.rawPhotos.length,1);
 assert.equal(item.rawPhotos[0].comment,"Фасад, 25.11.2026");
 assert.equal(it([{lat:49.8,lng:24.0,comment:"Без фото"}]).length,1);
-console.log("PASS RoundUp: 7 GPS formats, entry arrays, comments and photo metadata.");
+async function testPhoto() {
+  const img = { name:"photos/001.jpg", dir:false, date:new Date("2026-11-25"), async:async()=>new Uint8Array([1,2]) };
+  const zip = {files:{a:img}};
+  const r = await Ht(zip,{measurements:[],rawPhotos:[{path:"photos/001.jpg",comment:"Видно новий фасад"}],warnings:[]},"data.json",true);
+  assert.equal(r.length,1);
+  assert.equal(r[0].note,"Видно новий фасад");
+  console.log("PASS RoundUp: 7 GPS formats, object comments and ZIP photo note transfer.");
+}
+testPhoto().catch(e=>{console.error(e);process.exit(1)});
