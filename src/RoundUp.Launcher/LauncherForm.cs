@@ -308,7 +308,10 @@ internal sealed class LauncherForm : Form
             finally
             {
                 SetBusy(false);
-                primary.Enabled = File.Exists(AppPaths.AppExe);
+                // Keep installation retry available after a failed first download.
+                primary.Enabled = File.Exists(AppPaths.AppExe) ||
+                    (latest is not null &&
+                     ReleaseUpdater.UpdateAvailable(ReleaseUpdater.InstalledVersion, latest.Tag));
             }
             return;
         }
