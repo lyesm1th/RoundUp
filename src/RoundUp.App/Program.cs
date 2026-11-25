@@ -3,6 +3,8 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.NetworkInformation;
+using System.Runtime.InteropServices;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -35,6 +37,8 @@ internal static class Program
     private static Uri? coreUri;
     private static Uri? localUri;
     private static Thread? trayThread;
+    private static string? startupError;
+    private static HashSet<int> knownChromeIds = [];
 
     [STAThread]
     private static async Task Main(string[] args)
@@ -57,7 +61,7 @@ internal static class Program
         try
         {
             WriteLog("RoundUp started");
-            await LaunchCoreAsync();
+            knownChromeIds = Process.GetProcessesByName("chrome").Select(p => p.Id).ToHashSet();
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions
             {
                 Args = args,
@@ -75,7 +79,7 @@ internal static class Program
             var app = builder.Build();
 
             app.MapGet("/roundup/status", () =>
-                Results.Json(new { name = "RoundUp", ready = coreUri is not null, version = "6.0.0" }));
+                Results.Json(new { name = "RoundUp", ready = coreUri is not null, error = startupError, version = "6.0.1" }));
             app.MapGet("/roundup/coverage", (HttpContext ctx) =>
             {
                 var path = CoveragePath(ctx.Request.Query["project"].ToString());
@@ -128,10 +132,15 @@ internal static class Program
                         var bytes = await File.ReadAllBytesAsync(asset);
                         if (path == "/" || path == "/index.html")
                         {
-                            var html = Encoding.UTF8.GetString(bytes);
-                            var token = await ReadCoreTokenAsync();
-                            html = html.Replace("__RUNTIME_TOKEN__", System.Net.WebUtility.HtmlEncode(token));
-                            bytes = Encoding.UTF8.GetBytes(html);
+                            if (coreUri is null)
+                                bytes = Encoding.UTF8.GetBytes(StartingPage);
+                            else
+                            {
+                                var html = Encoding.UTF8.GetString(bytes);
+                                var token = await ReadCoreTokenAsync();
+                                html = html.Replace("__RUNTIME_TOKEN__", System.Net.WebUtility.HtmlEncode(token));
+                                bytes = Encoding.UTF8.GetBytes(html);
+                            }
                         }
                         ctx.Response.ContentType = ContentType(asset);
                         ctx.Response.Headers.CacheControl = "no-store";
@@ -146,6 +155,7 @@ internal static class Program
             WriteLog("RoundUp UI listening at " + localUri);
             StartTray();
             OpenBrowser(localUri.ToString());
+            _ = Task.Run(InitializeCoreSafelyAsync);
             try { await Task.Delay(Timeout.InfiniteTimeSpan, Stop.Token); }
             catch (OperationCanceledException) { }
             using var stopTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
@@ -166,6 +176,72 @@ internal static class Program
                 try { core.Kill(entireProcessTree: true); } catch { }
             }
             WriteLog("RoundUp stopped");
+        }
+    }
+
+
+    private const string StartingPage = """
+<!doctype html><html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-store"><title>RoundUp — підготовка карти</title>
+<style>*{box-sizing:border-box}body{margin:0;height:100vh;display:grid;place-items:center;background:linear-gradient(120deg,#0c1d2e,#133c42);color:#f1fff8;font-family:Segoe UI,Arial,sans-serif}
+main{max-width:460px;margin:22px;padding:42px;text-align:center;background:#173c45;border:1px solid #29646a;border-radius:25px;box-shadow:0 20px 70px #051b28aa}
+.logo{font-size:38px;font-weight:800;letter-spacing:-1px}.logo span{color:#84e5b9}.pin{font-size:43px;color:#72deb2}h1{font-size:22px;font-weight:700;margin:28px 0 10px}
+p{line-height:1.6;color:#bfd5d7;font-size:15px}.loader{width:32px;height:32px;border:3px solid #496f72;border-top-color:#87e9bb;border-radius:50%;animation:spin 1s linear infinite;margin:27px auto}
+@keyframes spin{to{transform:rotate(360deg)}}#hint{font-size:12px;color:#91b8ba}</style></head>
+<body><main><div class="pin">◉</div><div class="logo">Round<span>Up</span></div>
+<h1>Готуємо вашу карту</h1><p>Підключаємо локальну базу проєктів, фотографій та геоміток.</p>
+<div class="loader"></div><p id="hint">Зазвичай це займає кілька секунд. Не закривайте RoundUp.</p></main>
+<script>setInterval(async()=>{try{const r=await fetch('/roundup/status',{cache:'no-store'});const s=await r.json();
+if(s.ready){location.replace('/?started=1');return}
+if(s.error)document.querySelector('#hint').textContent='Ядро не відповідає. Закрийте RoundUp через значок у треї та запустіть знову. Журнал: %LOCALAPPDATA%\\RoundUp\\logs\\roundup-host.log';
+}catch(_){}},1000)</script></body></html>
+""";
+
+    private static async Task InitializeCoreSafelyAsync()
+    {
+        try
+        {
+            await LaunchCoreAsync();
+            startupError = null;
+            // The legacy Chrome app is hidden separately; no window swap here.
+        }
+        catch (Exception ex)
+        {
+            startupError = ex.Message;
+            WriteLog("CORE STARTUP: " + ex);
+            // Never kill the new RoundUp application when the legacy backend is slow.
+            // The loading screen, project folders and diagnostic logs stay available.
+        }
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int command);
+
+    private static async Task HideLegacyWindowAsync()
+    {
+        // Old Go runtime opens a separate Chrome app window. Hide ONLY windows
+        // newly started by this launch, never the user's already-open Chrome.
+        for (var attempt = 0; attempt < 16; attempt++)
+        {
+            foreach (var process in Process.GetProcessesByName("chrome"))
+            {
+                try
+                {
+                    if (knownChromeIds.Contains(process.Id)) continue;
+                    var title = process.MainWindowTitle;
+                    if ((title.Contains("GeoZamir", StringComparison.OrdinalIgnoreCase) ||
+                         title.Contains("ГеоЗамір", StringComparison.OrdinalIgnoreCase) ||
+                         title.Contains("ГеоЗамiр", StringComparison.OrdinalIgnoreCase)) &&
+                        process.MainWindowHandle != IntPtr.Zero)
+                    {
+                        ShowWindow(process.MainWindowHandle, 0);
+                        WriteLog("Hidden newly-opened legacy Chrome window; RoundUp is primary.");
+                    }
+                }
+                catch { }
+                finally { process.Dispose(); }
+            }
+            await Task.Delay(350);
         }
     }
 
@@ -291,6 +367,9 @@ internal static class Program
             CopyDirectory(oldData, newData);
             WriteLog("Migrated existing local data into persistent workspace.");
         }
+        // Record ports before launching the core, without relying on netstat text,
+        // process IDs or Windows display language.
+        var previousListeners = NewTcpEndpoints().Select(p => p.Port).ToHashSet();
         core = Process.Start(new ProcessStartInfo
         {
             FileName = filename,
@@ -301,6 +380,7 @@ internal static class Program
             CreateNoWindow = true,
             WindowStyle = ProcessWindowStyle.Hidden
         }) ?? throw new InvalidOperationException("Не вдалося відкрити ядро інтерпретатора.");
+        _ = Task.Run(HideLegacyWindowAsync);
         _ = Task.Run(async () =>
         {
             while (!core.HasExited)
@@ -319,53 +399,70 @@ internal static class Program
                 WriteLog("CORE ERR " + line);
             }
         });
-        for (int i = 0; i < 65; ++i)
+        for (int i = 0; i < 150; ++i)
         {
-            if (core.HasExited) throw new InvalidOperationException("Ядро інтерпретатора завершилось з кодом " + core.ExitCode);
-            var ports = await ListenPorts(core.Id);
-            foreach (var port in ports)
+            // The Go runtime may spawn a child process to own the HTTP listener.
+            // We detect the server by its unique HTML signature, not by PID.
+            var endpoints = NewTcpEndpoints()
+                .Where(e => e.Port > 1023 && e.Port != localUri?.Port &&
+                            (i > 40 || !previousListeners.Contains(e.Port)))
+                .OrderBy(e => previousListeners.Contains(e.Port) ? 1 : 0)
+                .DistinctBy(e => e.Address + ":" + e.Port)
+                .Take(80)
+                .ToList();
+            if (i % 15 == 0)
+                WriteLog("Backend discovery pass " + i + ": " + endpoints.Count +
+                         " listeners, core running=" + !core.HasExited);
+            foreach (var endpoint in endpoints)
             {
+                var address = endpoint.Address.AddressFamily == AddressFamily.InterNetworkV6
+                    ? "[::1]" : "127.0.0.1";
+                Uri candidate;
+                try { candidate = new Uri("http://" + address + ":" + endpoint.Port + "/"); }
+                catch { continue; }
+                using var probeTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(850));
                 try
                 {
-                    var candidate = new Uri("http://127.0.0.1:" + port + "/");
-                    var response = await CoreClient.GetStringAsync(candidate);
-                    if (response.Contains("GEOZAMIR_TOKEN", StringComparison.Ordinal))
+                    using var response = await CoreClient.GetAsync(candidate,
+                        HttpCompletionOption.ResponseHeadersRead, probeTimeout.Token);
+                    if (!response.IsSuccessStatusCode ||
+                        response.Content.Headers.ContentLength > 250_000) continue;
+                    var html = await response.Content.ReadAsStringAsync(probeTimeout.Token);
+                    if (html.Contains("window.GEOZAMIR_TOKEN=", StringComparison.Ordinal) &&
+                        html.Contains("<html", StringComparison.OrdinalIgnoreCase))
                     {
                         coreUri = candidate;
-                        WriteLog("Legacy interpreter ready (port " + port + ")");
+                        WriteLog("Original interpreter connected on port " + candidate.Port);
                         return;
                     }
                 }
-                catch { }
+                catch (OperationCanceledException) { }
+                catch (HttpRequestException) { }
+                catch (IOException) { }
             }
-            await Task.Delay(420);
+            // The old executable may take longer when recovering a large database.
+            await Task.Delay(550);
         }
-        throw new TimeoutException("Ядро інтерпретатора не відкрило свій локальний вебсервер за 30 секунд.");
+        throw new TimeoutException("Не вдалося встановити з'єднання з локальною базою протягом 90 секунд. " +
+                                   "RoundUp залишився відкритим для повторної спроби.");
     }
 
-    private static async Task<List<int>> ListenPorts(int pid)
+    private static IEnumerable<IPEndPoint> NewTcpEndpoints()
     {
-        using var probe = Process.Start(new ProcessStartInfo
+        try
         {
-            FileName = "netstat.exe",
-            Arguments = "-ano -p tcp",
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        });
-        if (probe is null) return [];
-        var output = await probe.StandardOutput.ReadToEndAsync();
-        await probe.WaitForExitAsync();
-        var ports = new List<int>();
-        foreach (var line in output.Split('\n'))
-        {
-            var m = Regex.Match(line, @"^\s*TCP\s+(?:127\.0\.0\.1|0\.0\.0\.0):(\d+)\s+\S+\s+\S+\s+(\d+)\s*$",
-                RegexOptions.IgnoreCase);
-            if (m.Success && int.TryParse(m.Groups[2].Value, out var owner) && owner == pid &&
-                int.TryParse(m.Groups[1].Value, out var port) && port > 0)
-                ports.Add(port);
+            return IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners()
+                .Where(x => x.Port > 0 &&
+                            (IPAddress.IsLoopback(x.Address) ||
+                             x.Address.Equals(IPAddress.Any) ||
+                             x.Address.Equals(IPAddress.IPv6Any)))
+                .ToArray();
         }
-        return ports;
+        catch (NetworkInformationException ex)
+        {
+            WriteLog("Cannot enumerate local listeners: " + ex.Message);
+            return [];
+        }
     }
 
     private static int FindPort()
