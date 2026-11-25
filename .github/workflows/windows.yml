@@ -193,10 +193,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag='v6.2.0'
-          gh release view $tag --json tagName *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --clobber
-          } else {
-            gh release create $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --title 'RoundUp 6.2.0 — Windows' --notes 'GeoZamir 5.5 використовується напряму: RoundUp вбудовує лише оновлену графіку в WebView2. Повністю прибрано проміжний HTTP-сервер і проксі; ZIP, GPS, фото, архіви та проєкти обробляє оригінальне ядро.' --target $env:GITHUB_SHA
+          $published = $false
+          for ($attempt = 1; $attempt -le 6; $attempt++) {
+            gh release view $tag --json tagName *> $null
+            if ($LASTEXITCODE -eq 0) {
+              gh release upload $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --clobber
+            } else {
+              gh release create $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --title 'RoundUp 6.2.0 — Windows' --notes 'GeoZamir 5.5 використовується напряму: RoundUp вбудовує лише оновлену графіку в WebView2. Повністю прибрано проміжний HTTP-сервер і проксі; ZIP, GPS, фото, архіви та проєкти обробляє оригінальне ядро.' --target $env:GITHUB_SHA
+            }
+            if ($LASTEXITCODE -eq 0) { $published = $true; break }
+            Write-Warning "Transient GitHub release API failure; attempt $attempt of 6"
+            Start-Sleep -Seconds (5 * $attempt)
           }
-          if ($LASTEXITCODE -ne 0) { throw "GitHub Release publishing failed" }
+          if (!$published) { throw "GitHub Release publishing failed after 6 attempts" }
