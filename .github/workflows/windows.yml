@@ -87,6 +87,20 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "RoundUp installer build failed" }
           if (!(Test-Path dist/setup/RoundUpSetup-win-x64.exe)) { throw "RoundUp setup missing" }
 
+      - name: Smoke-test silent first install and data folders
+        shell: pwsh
+        run: |
+          $setup = (Resolve-Path 'dist/setup/RoundUpSetup-win-x64.exe').Path
+          $proc = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "Installer exit code $($proc.ExitCode)" }
+          $root = Join-Path $env:LOCALAPPDATA 'RoundUp'
+          $expected = @('RoundUpLauncher.exe','app','projects','photos','imports','backups/app','backups/projects','updates','logs')
+          foreach ($item in $expected) {
+            $path = Join-Path $root $item
+            if (!(Test-Path $path)) { throw "Installer missed $path" }
+          }
+          if (!(Test-Path (Join-Path $root 'unins000.exe'))) { throw "Uninstaller missing" }
+
       - name: Upload launcher build
         uses: actions/upload-artifact@v4
         with:
