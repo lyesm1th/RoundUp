@@ -1,0 +1,87 @@
+name: Import verified legacy RoundUp files
+on:
+  push:
+    paths:
+      - .github/workflows/ingest-legacy.yml
+permissions:
+  contents: write
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ROUNDUP_WINDOWS_URL: "https://sdmntprdenmarkeast.oaiusercontent.com/files/00000000-8678-8210-88af-a71f99d0ad05/raw?se=2026-11-25T14%3A38%3A10Z&sp=r&sv=2026-06-06&sr=b&scid=9e0dbbe9-0c91-499e-9018-51a159a3ff0a&skoid=e5f84a89-964a-4fd3-92c2-c2cb3a12ea16&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-25T05%3A24%3A39Z&ske=2026-11-26T05%3A24%3A39Z&sks=b&skv=2026-06-06&sig=H7dQT6BM9S3a6RRP64I3gkZLGQiyFSxDbiecSjBDbiU%3D"
+      ROUNDUP_SOURCE_URL: "https://sdmntpreastus3.oaiusercontent.com/files/00000000-0024-8212-9636-753423241f5d/raw?se=2026-11-25T14%3A38%3A10Z&sp=r&sv=2026-06-06&sr=b&scid=9e0dbbe9-0c91-499e-9018-51a159a3ff0a&skoid=e5f84a89-964a-4fd3-92c2-c2cb3a12ea16&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-25T05%3A21%3A48Z&ske=2026-11-26T05%3A21%3A48Z&sks=b&skv=2026-06-06&sig=%2BgiiimT06RMOqnO44viDAkZJvr9ofsrtPH7n21RaWHg%3D"
+    steps:
+      - name: Checkout RoundUp
+        uses: actions/checkout@v4
+      - name: Download, check, and stage original archives
+        shell: bash
+        run: |
+          python - <<'PY'
+          import pathlib, zipfile, urllib.request, shutil, re
+          root = pathlib.Path("legacy")
+          (root / "source").mkdir(parents=True, exist_ok=True)
+          archives = [
+              ("windows", "ROUNDUP_WINDOWS_URL", root / "GeoZamir_5.5_GUI_Launcher_Windows.zip"),
+              ("source", "ROUNDUP_SOURCE_URL", root / "GeoZamir_5.5_GUI_Launcher_Source.zip"),
+          ]
+          import os
+          for kind, variable, destination in archives:
+              url = os.environ[variable]
+              request = urllib.request.Request(url, headers={"User-Agent":"RoundUpBuild/1.0"})
+              with urllib.request.urlopen(request, timeout=90) as response, destination.open("wb") as file:
+                  shutil.copyfileobj(response, file)
+              print(kind, "bytes:", destination.stat().st_size)
+              with zipfile.ZipFile(destination) as archive:
+                  if archive.testzip():
+                      raise RuntimeError(kind + " ZIP integrity check failed")
+                  files = []
+                  for entry in archive.infolist():
+                      path = pathlib.PurePosixPath(entry.filename.replace(chr(92), "/"))
+                      if path.is_absolute() or '..' in path.parts or not path.parts:
+                          raise RuntimeError("Unsafe ZIP entry path")
+                      if (entry.external_attr >> 16) & 0o170000 == 0o120000:
+                          raise RuntimeError("Symlink entry blocked")
+                      if entry.is_dir():
+                          continue
+                      if entry.file_size > 30_000_000:
+                          raise RuntimeError("Unexpected large file")
+                      low = '/'.join(path.parts).lower()
+                      if any(q in low for q in ('.env', 'private_key', 'secrets', 'credentials', 'obizd-', 'zamirnyk-', '/projects/', '/photos/', '/backups/')):
+                          raise RuntimeError("Archive appears to include private working data: " + low)
+                      if path.suffix.lower() in ('.db','.sqlite','.sqlite3','.jpg','.jpeg','.heic','.mp4','.mov','.pdf','.docx'):
+                          raise RuntimeError("Archive contains potentially private data: " + low)
+                      files.append((entry, path))
+                  print(kind, "files:", len(files))
+                  print(kind, "sample:", [str(p) for _, p in files[:15]])
+                  if kind == "source":
+                      for entry, path in files:
+                          if path.suffix.lower() not in ('.go','.mod','.sum','.js','.cjs','.mjs','.json','.html','.css','.py','.md','.txt','.yaml','.yml','.svg','.ps1','.bat','.cmd'):
+                              continue
+                          data = archive.read(entry)
+                          if re.search(rb'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|ghp_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9]{30,}', data):
+                              raise RuntimeError("Possible embedded credential in source; import blocked")
+                          target = root / "source" / pathlib.Path(*path.parts)
+                          target.parent.mkdir(parents=True, exist_ok=True)
+                          target.write_bytes(data)
+          print("Safe legacy archives staged")
+          PY
+      - name: Upload safely staged input for reproducibility
+        uses: actions/upload-artifact@v4
+        with:
+          name: RoundUp-verified-legacy-input
+          path: legacy/
+          if-no-files-found: error
+      - name: Commit program and sanitized sources to RoundUp
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add legacy/
+          if git diff --cached --quiet; then
+            echo "Program sources already available."
+          else
+            git commit -m "Import verified GeoZamir 5.5 source and Windows archive for RoundUp migration"
+            git push origin HEAD:main
+          fi
