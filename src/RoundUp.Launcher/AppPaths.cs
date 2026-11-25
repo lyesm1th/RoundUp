@@ -32,39 +32,34 @@ internal static class AppPaths
 
 internal static class AppBootstrap
 {
-    internal static bool InstallAndRelaunchIfNeeded()
+    internal static void PrepareInstalledCopy()
     {
         var current = Environment.ProcessPath;
         if (string.IsNullOrWhiteSpace(current) ||
-            !Path.GetFileName(current).Equals("RoundUpLauncher.exe", StringComparison.OrdinalIgnoreCase) ||
-            Path.GetFullPath(current).Equals(Path.GetFullPath(AppPaths.LauncherExe), StringComparison.OrdinalIgnoreCase))
-            return false;
+            !Path.GetFileName(current).Equals("RoundUpLauncher.exe", StringComparison.OrdinalIgnoreCase))
+            return;
 
         try
         {
-            File.Copy(current, AppPaths.LauncherExe, overwrite: true);
-            CreateDesktopShortcut();
-            Process.Start(new ProcessStartInfo
+            if (!Path.GetFullPath(current).Equals(
+                    Path.GetFullPath(AppPaths.LauncherExe), StringComparison.OrdinalIgnoreCase))
             {
-                FileName = AppPaths.LauncherExe,
-                WorkingDirectory = AppPaths.Root,
-                UseShellExecute = true
-            });
-            return true;
+                // Prepare an installed copy and a shortcut, but keep the current GUI alive.
+                File.Copy(current, AppPaths.LauncherExe, overwrite: true);
+            }
+            CreateDesktopShortcut();
+            LauncherLog.Write("Installed launcher prepared: " + AppPaths.LauncherExe);
         }
         catch (Exception ex)
         {
-            MessageBox.Show("Не вдалося встановити лаунчер: " + ex.Message,
-                "RoundUp", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return false;
+            LauncherLog.Write("Shortcut or installed copy failed (nonfatal): " + ex);
         }
     }
 
     private static void CreateDesktopShortcut()
     {
-        // Windows Script Host creates a native .lnk; no .bat or .cmd files required.
         var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-        if (string.IsNullOrEmpty(desktop))
+        if (string.IsNullOrWhiteSpace(desktop))
             return;
         var shellType = Type.GetTypeFromProgID("WScript.Shell");
         if (shellType is null)
@@ -74,7 +69,7 @@ internal static class AppBootstrap
         shortcut.TargetPath = AppPaths.LauncherExe;
         shortcut.WorkingDirectory = AppPaths.Root;
         shortcut.IconLocation = AppPaths.LauncherExe + ",0";
-        shortcut.Description = "RoundUp — карта польових об'їздів";
+        shortcut.Description = "RoundUp — об'їзди, точки, карта";
         shortcut.Save();
     }
 }
