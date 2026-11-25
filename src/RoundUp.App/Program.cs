@@ -116,7 +116,7 @@ internal static class Program
                 finally { SaveLock.Release(); }
                 return Results.Json(new { saved = true });
             });
-            app.MapFallback(async ctx =>
+            app.Map("/{**path}", async ctx =>
             {
                 var path = ctx.Request.Path.Value ?? "/";
                 if (ctx.Request.Method is "GET" or "HEAD" &&
