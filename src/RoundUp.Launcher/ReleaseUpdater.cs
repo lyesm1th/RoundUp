@@ -7,6 +7,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace RoundUp.Launcher;
@@ -49,7 +50,9 @@ internal static class ReleaseUpdater
     internal static async Task<ReleaseInfo> CheckAsync()
     {
         var endpoint = "https://api.github.com/repos/" + ReleaseRepository + "/releases/latest";
-        using var response = await Client.GetAsync(endpoint);
+        // A stalled network must not trap the user on the launch screen for 20 minutes.
+        using var checkTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));
+        using var response = await Client.GetAsync(endpoint, checkTimeout.Token);
         response.EnsureSuccessStatusCode();
         using var release = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var root = release.RootElement;
@@ -71,7 +74,7 @@ internal static class ReleaseUpdater
 
         ValidateDownloadUrl(zipUrl);
         ValidateDownloadUrl(manifestUrl);
-        var manifestText = await Client.GetStringAsync(manifestUrl);
+        var manifestText = await Client.GetStringAsync(manifestUrl, checkTimeout.Token);
         var manifest = JsonSerializer.Deserialize<ReleaseManifest>(manifestText,
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         if (manifest is null ||
