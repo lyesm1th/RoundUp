@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" aria-label="RoundUp">
+<defs><linearGradient id="a" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#24b19b"/><stop offset="1" stop-color="#087579"/></linearGradient></defs>
+<rect width="128" height="128" rx="31" fill="#102c3c"/>
+<path d="M64 12c-25.4 0-46 20.6-46 46 0 33.2 46 62 46 62s46-28.8 46-62c0-25.4-20.6-46-46-46Z" fill="url(#a)"/>
+<path d="M48 64a18 18 0 1 1 18 18h-8" fill="none" stroke="#d8fff0" stroke-width="10" stroke-linecap="round"/>
+<circle cx="64" cy="58" r="8" fill="#102c3c"/>
+</svg>
