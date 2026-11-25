@@ -11,6 +11,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - name: Scan embedded web resources
+        shell: pwsh
+        run: python scripts/scan_legacy_assets.py
+
       - name: Inspect package and serve original UI
         shell: pwsh
         run: |
