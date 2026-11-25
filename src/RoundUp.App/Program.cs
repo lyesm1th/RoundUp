@@ -256,13 +256,41 @@ internal static class Program
         }
     }
 
+    private static void CopyDirectory(string source, string target)
+    {
+        Directory.CreateDirectory(target);
+        foreach (var file in Directory.GetFiles(source))
+        {
+            // Chrome may leave lockfiles; they are not project data.
+            if (Path.GetFileName(file).Equals("lockfile", StringComparison.OrdinalIgnoreCase)) continue;
+            File.Copy(file, Path.Combine(target, Path.GetFileName(file)), overwrite: false);
+        }
+        foreach (var dir in Directory.GetDirectories(source))
+            CopyDirectory(dir, Path.Combine(target, Path.GetFileName(dir)));
+    }
+
     private static async Task LaunchCoreAsync()
     {
-        var filename = Path.Combine(AppContext.BaseDirectory, "GeoZamirCore.exe");
-        if (!File.Exists(filename))
-            throw new FileNotFoundException("Не знайдено компонент інтерпретатора GeoZamirCore.exe",filename);
+        var bundle = Path.Combine(AppContext.BaseDirectory, "GeoZamirCore.exe");
+        if (!File.Exists(bundle))
+            throw new FileNotFoundException("Не знайдено компонент інтерпретатора GeoZamirCore.exe", bundle);
         var workspace = Path.Combine(Projects, "workspace");
         Directory.CreateDirectory(workspace);
+        // IMPORTANT: legacy Go core writes GeoZamir_Data NEXT TO ITS EXECUTABLE.
+        // It must run from the persistent project directory, not from updateable app/.
+        // Copy the small executable on upgrade; never replace its GeoZamir_Data database.
+        var filename = Path.Combine(workspace, "GeoZamirCore.exe");
+        if (!File.Exists(filename) ||
+            !SHA256.HashData(File.ReadAllBytes(bundle)).SequenceEqual(SHA256.HashData(File.ReadAllBytes(filename))))
+            File.Copy(bundle, filename, overwrite: true);
+        var oldData = Path.Combine(AppContext.BaseDirectory, "GeoZamir_Data");
+        var newData = Path.Combine(workspace, "GeoZamir_Data");
+        if (Directory.Exists(oldData) && !Directory.Exists(newData))
+        {
+            // Migrate a database from an older RoundUp bundle without removing its source.
+            CopyDirectory(oldData, newData);
+            WriteLog("Migrated existing local data into persistent workspace.");
+        }
         core = Process.Start(new ProcessStartInfo
         {
             FileName = filename,
