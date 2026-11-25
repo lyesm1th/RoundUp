@@ -70,11 +70,35 @@ jobs:
             throw "RoundUp launcher GUI did not report opening within 30 seconds."
           }
 
+      - name: Build modern Windows installer
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source)
+          if (!$iscc) {
+            $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          }
+          if (!(Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
+            $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          }
+          if (!(Test-Path $iscc)) { throw "ISCC.exe not found" }
+          & $iscc "/DAppVersion=0.1.0" "installer/RoundUp.iss"
+          if ($LASTEXITCODE -ne 0) { throw "RoundUp installer build failed" }
+          if (!(Test-Path dist/setup/RoundUpSetup-win-x64.exe)) { throw "RoundUp setup missing" }
+
       - name: Upload launcher build
         uses: actions/upload-artifact@v4
         with:
           name: RoundUpLauncher-win-x64
           path: dist/launcher/RoundUpLauncher.exe
+          if-no-files-found: error
+
+      - name: Upload one-click installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: RoundUpSetup-win-x64
+          path: dist/setup/RoundUpSetup-win-x64.exe
           if-no-files-found: error
 
   preview:
@@ -91,12 +115,20 @@ jobs:
           name: RoundUpLauncher-win-x64
           path: dist/launcher
 
+      - name: Download tested setup installer
+        uses: actions/download-artifact@v4
+        with:
+          name: RoundUpSetup-win-x64
+          path: dist/setup
+
       - name: Publish public launcher preview (no interpreter)
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v0.0.2-launcher-preview dist/launcher/RoundUpLauncher.exe --title "RoundUp Launcher · preview" --notes "Тестовий графічний лаунчер із новим дизайном. Інтерпретатор RoundUp поки НЕ включено в цей реліз." --prerelease --target "${{ github.sha }}"
+          $tag = "v0.0.3-launcher-installer-preview"
+          gh release create $tag dist/launcher/RoundUpLauncher.exe dist/setup/RoundUpSetup-win-x64.exe --title "RoundUp Launcher + Setup · preview" --notes "Тестовий інсталятор та графічний лаунчер. Інтерпретатор RoundUp ще НЕ включено; не використовуйте як готову робочу версію." --prerelease --target "${{ github.sha }}"
+          if ($LASTEXITCODE -ne 0) { throw "Preview release publication failed" }
 
   release:
     needs: launcher
@@ -111,6 +143,12 @@ jobs:
         with:
           name: RoundUpLauncher-win-x64
           path: dist/launcher
+
+      - name: Download tested setup installer
+        uses: actions/download-artifact@v4
+        with:
+          name: RoundUpSetup-win-x64
+          path: dist/setup
 
       - name: Package program and write SHA-256 manifest
         shell: pwsh
@@ -141,10 +179,11 @@ jobs:
           }
           $manifest | ConvertTo-Json | Set-Content release/roundup-update.json -Encoding utf8
           Copy-Item dist/launcher/RoundUpLauncher.exe release/RoundUpLauncher.exe
+          Copy-Item dist/setup/RoundUpSetup-win-x64.exe release/RoundUpSetup-win-x64.exe
 
       - name: Publish release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe --title "RoundUp ${{ github.ref_name }}" --generate-notes --verify-tag
+          gh release create "${{ github.ref_name }}" release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --title "RoundUp ${{ github.ref_name }}" --generate-notes --verify-tag
