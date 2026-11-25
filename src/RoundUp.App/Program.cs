@@ -79,7 +79,7 @@ internal static class Program
             var app = builder.Build();
 
             app.MapGet("/roundup/status", () =>
-                Results.Json(new { name = "RoundUp", ready = coreUri is not null, error = startupError, version = "6.1.1" }));
+                Results.Json(new { name = "RoundUp", ready = coreUri is not null, error = startupError, version = "6.1.2" }));
             app.MapGet("/roundup/coverage", (HttpContext ctx) =>
             {
                 var path = CoveragePath(ctx.Request.Query["project"].ToString());
@@ -297,13 +297,30 @@ if(s.error)document.querySelector('#hint').textContent='Ядро не відпо
         }
         var remote = new Uri(coreUri, ctx.Request.Path.Value?.TrimStart('/') + ctx.Request.QueryString);
         using var request = new HttpRequestMessage(new HttpMethod(ctx.Request.Method), remote);
-        if (ctx.Request.ContentLength > 0 || ctx.Request.Headers.ContainsKey("Transfer-Encoding"))
+        // Keep the original GeoZamir HTTP API intact. Browser-facing headers
+        // describe RoundUp's port and must not be sent unchanged to the Go core.
+        // In particular, uploads must preserve their exact Content-Length:
+        // chunked re-encoding can make the old server drop its connection.
+        if (ctx.Request.ContentLength is > 0 || ctx.Request.Headers.ContainsKey("Transfer-Encoding"))
+        {
             request.Content = new StreamContent(ctx.Request.Body);
+            if (ctx.Request.ContentLength.HasValue)
+                request.Content.Headers.ContentLength = ctx.Request.ContentLength.Value;
+        }
         foreach (var pair in ctx.Request.Headers)
         {
-            if (pair.Key.Equals("Host", StringComparison.OrdinalIgnoreCase)) continue;
-            if (!request.Headers.TryAddWithoutValidation(pair.Key, (IEnumerable<string>)pair.Value))
-                request.Content?.Headers.TryAddWithoutValidation(pair.Key, (IEnumerable<string>)pair.Value);
+            var header = pair.Key;
+            if (header.Equals("Host", StringComparison.OrdinalIgnoreCase) ||
+                header.Equals("Connection", StringComparison.OrdinalIgnoreCase) ||
+                header.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase) ||
+                header.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) ||
+                header.Equals("Origin", StringComparison.OrdinalIgnoreCase) ||
+                header.Equals("Referer", StringComparison.OrdinalIgnoreCase) ||
+                header.Equals("Accept-Encoding", StringComparison.OrdinalIgnoreCase) ||
+                header.StartsWith("Sec-Fetch-", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (!request.Headers.TryAddWithoutValidation(header, (IEnumerable<string>)pair.Value))
+                request.Content?.Headers.TryAddWithoutValidation(header, (IEnumerable<string>)pair.Value);
         }
         try
         {
@@ -330,7 +347,7 @@ if(s.error)document.querySelector('#hint').textContent='Ядро не відпо
                 ctx.Response.StatusCode = 502;
                 await ctx.Response.WriteAsync("З'єднання з інтерпретатором тимчасово недоступне.");
             }
-            WriteLog("Proxy error: " + ex.Message);
+            WriteLog("Proxy " + ctx.Request.Method + " " + ctx.Request.Path + " to " + remote + ": " + ex);
         }
     }
 

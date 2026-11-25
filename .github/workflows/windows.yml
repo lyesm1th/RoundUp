@@ -90,6 +90,34 @@ jobs:
             }
             $appJs = (Invoke-WebRequest 'http://127.0.0.1:45672/app.js' -UseBasicParsing).Content
             if ($appJs -notmatch 'RoundUpBridge') { throw "Legacy map UI not served" }
+            # RoundUp used to return HTTP 502 when uploading real field ZIPs.
+            # Exercise the exact original GeoZamir import API through the host.
+            $tokenMatch = [regex]::Match($html, 'window\.GEOZAMIR_TOKEN="([^"]+)"')
+            if (!$tokenMatch.Success) { throw "Original interpreter auth token missing" }
+            $token = [System.Net.WebUtility]::HtmlDecode($tokenMatch.Groups[1].Value)
+            $probeDir = Join-Path $env:RUNNER_TEMP 'roundup-import-probe'
+            New-Item -ItemType Directory -Path $probeDir -Force | Out-Null
+            $json = '{"objects":[{"object":"RoundUp upload smoke","geo":{"lat":49.84,"lng":24.03},"comment":"GPS + comment from archive"}]}'
+            Set-Content -Path (Join-Path $probeDir 'дані.json') -Value $json -Encoding utf8
+            [IO.File]::WriteAllBytes((Join-Path $probeDir 'photo-data.dat'),[Security.Cryptography.RandomNumberGenerator]::GetBytes(1600000))
+            $probeZip = Join-Path $env:RUNNER_TEMP 'roundup-import-probe.zip'
+            Compress-Archive -Path (Join-Path $probeDir '*') -DestinationPath $probeZip -Force
+            for($k=1;$k -le 4;$k++){
+              try {
+                $headers = @{
+                  'X-GeoZamir-Token' = $token
+                  'X-GeoZamir-Project' = 'default'
+                  'X-File-Name' = "roundup-proxy-smoke-$k.zip"
+                }
+                $upload = Invoke-RestMethod -Uri 'http://127.0.0.1:45672/api/import' -Method Post -Headers $headers -ContentType 'application/zip' -InFile $probeZip -TimeoutSec 50
+                if (!$upload.item.id -and !$upload.duplicate) { throw "Unexpected import response: $($upload|ConvertTo-Json -Compress)" }
+                Write-Host "PASS: ZIP import $k/4 via original GeoZamir backend, item=$($upload.item.id)"
+              } catch {
+                Write-Host "FAIL: original ZIP import $k/4 — $($_.Exception.Message)"
+                if(Test-Path $nativeLog){ Get-Content $nativeLog -Tail 130 }
+                throw
+              }
+            }
             $legacy = @(Get-Process chrome -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -match 'GeoZamir|ГеоЗамір' })
             Write-Host "Legacy browser windows still visible: $($legacy.Count)" 
             $body = '{"version":1,"shapes":[{"id":"smoke","points":[[49.8,24.1],[49.8,24.2],[49.9,24.2]]}],"cells":[]}'
@@ -164,7 +192,7 @@ jobs:
             choco install innosetup -y --no-progress
             if ($LASTEXITCODE -ne 0) { throw "Inno Setup unavailable" }
           }
-          & $iscc '/DAppVersion=6.1.1' 'installer/RoundUp.iss'
+          & $iscc '/DAppVersion=6.1.2' 'installer/RoundUp.iss'
           if ($LASTEXITCODE -ne 0) { throw "Inno installer failed" }
           $setup = (Resolve-Path dist/setup/RoundUpSetup-win-x64.exe).Path
           $p = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait -PassThru
@@ -180,7 +208,7 @@ jobs:
           Compress-Archive -Path dist/app/* -DestinationPath release/RoundUp-App-win-x64.zip -CompressionLevel Optimal
           $hash=(Get-FileHash release/RoundUp-App-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
           [ordered]@{
-            version='v6.1.1'
+            version='v6.1.2'
             archive='RoundUp-App-win-x64.zip'
             executable='RoundUp.exe'
             sha256=$hash
@@ -200,11 +228,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag='v6.1.1'
+          $tag='v6.1.2'
           gh release view $tag --json tagName *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --clobber
           } else {
-            gh release create $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --title 'RoundUp 6.1.1 — Windows' --notes 'Одна шапка RoundUp без дубльованої Windows-панелі, повний екран карти, темний заголовок Windows. Лаунчер, проєкти, фотографії, геозони та бекапи залишилися без змін.' --target $env:GITHUB_SHA
+            gh release create $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --title 'RoundUp 6.1.2 — Windows' --notes 'Відновлено надійну передачу ZIP-архівів до оригінального GeoZamir без зміни формату даних; збережено єдину шапку RoundUp, автооновлення, проєкти, фото та бекапи. Додано Windows-тести чотирьох імпортів.' --target $env:GITHUB_SHA
           }
           if ($LASTEXITCODE -ne 0) { throw "GitHub Release publishing failed" }
