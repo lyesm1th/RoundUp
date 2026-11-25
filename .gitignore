@@ -1,0 +1,22 @@
+# Never commit field survey archives or local user data
+RoundUp_Data/
+GeoZamir_Data/
+projects/
+photos/
+imports/
+backups/
+updates/
+logs/
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+obizd-*.zip
+zamirnyk-*.zip
+*.user
+*.suo
+.vs/
+bin/
+obj/
+dist/
