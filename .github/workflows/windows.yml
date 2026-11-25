@@ -25,6 +25,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "app.js invalid" }
           node --check src/RoundUp.UI/roundup-addon.js
           if ($LASTEXITCODE -ne 0) { throw "roundup-addon.js invalid" }
+          node scripts/test_roundup_parser.cjs
+          if ($LASTEXITCODE -ne 0) { throw "Import GPS and comments regression" }
           python scripts/build_icon.py
           if (!(Test-Path assets/RoundUp.ico)) { throw "RoundUp icon missing" }
       - name: Build RoundUp desktop host and bundle real core
