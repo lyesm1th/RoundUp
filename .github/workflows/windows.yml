@@ -27,7 +27,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "roundup-addon.js invalid" }
           node scripts/test_roundup_parser.cjs
           if ($LASTEXITCODE -ne 0) { throw "Import GPS and comments regression" }
-          if (Select-String -Path src/RoundUp.App/Program.cs -Pattern 'OpenBrowser\(') { throw "Main RoundUp must never launch Chrome" }
+          if (Select-String -Path src/RoundUp.App/Program.cs -Pattern 'OpenBrowser\(|ProxyAsync|WebApplication|ConfigureKestrel') { throw "RoundUp must have no browser launcher or HTTP proxy" }
           if (Select-String -Path src/RoundUp.App/RoundUpWindow.cs -Pattern 'ToolStripButton|new ToolStrip|Controls.Add\(toolbar\)') { throw "RoundUp must not overlay a second header on the web UI" }
           python scripts/build_icon.py
           if (!(Test-Path assets/RoundUp.ico)) { throw "RoundUp icon missing" }
@@ -45,125 +45,89 @@ jobs:
           if ($cores.Count -ne 1) { throw "Legacy core count is $($cores.Count)" }
           Copy-Item $cores[0].FullName dist/app/GeoZamirCore.exe
           if (!(Test-Path dist/app/RoundUp.exe)) { throw "RoundUp.exe missing" }
-      - name: Functional smoke of local host, legacy parser and coverage
+      - name: Smoke-test unmodified GeoZamir directly from RoundUp Windows window
         shell: pwsh
         run: |
           $exe = (Resolve-Path dist/app/RoundUp.exe).Path
+          $log = Join-Path $env:LOCALAPPDATA 'RoundUp/logs/roundup-host.log'
           $p = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe -Parent) -PassThru
-          $ready = $false
           try {
-            for ($i=0; $i -lt 60; $i++) {
-              Start-Sleep -Milliseconds 750
-              $p.Refresh()
-              if ($p.HasExited) { throw "RoundUp exited: $($p.ExitCode)" }
-              try {
-                $status = Invoke-RestMethod 'http://127.0.0.1:45672/roundup/status' -TimeoutSec 1
-                if ($status.ready) { $ready = $true; break }
-              } catch {}
-            }
-            if (!$ready) { throw "RoundUp host did not start" }
-            $nativeLog = Join-Path $env:LOCALAPPDATA 'RoundUp/logs/roundup-host.log'
-            $nativeShown = $false
-            for($j=0; $j -lt 135; $j++){
+            $ready = $false
+            for($i=0;$i -lt 180;$i++){
               Start-Sleep -Milliseconds 450
               $p.Refresh()
-              $contents = if(Test-Path $nativeLog){ Get-Content $nativeLog -Raw }else{ '' }
-              if($contents -match 'native-window-shown' -and $contents -match 'webview-ready') {
-                $nativeShown = $true
-                break
+              if($p.HasExited){throw "RoundUp exited during native startup: $($p.ExitCode)"}
+              if(Test-Path $log){
+                $content = Get-Content $log -Raw
+                if($content -match 'direct-core-ui-ready:' -and $content -match 'direct-core-ui-override:'){
+                  $ready = $true
+                  break
+                }
               }
-              if($p.HasExited){ throw "Native RoundUp window crashed" }
             }
-            if(!$nativeShown){
-              Write-Host "Native UI initialization timeout — last diagnostic lines:"
-              if(Test-Path $nativeLog){ Get-Content $nativeLog -Tail 140 }
-              throw "RoundUp did not create its own native WebView2 window"
+            if(!$ready){
+              if(Test-Path $log){Get-Content $log -Tail 150}
+              throw "RoundUp did not display the redesigned UI directly from GeoZamir"
             }
-            if($p.MainWindowTitle -notmatch 'RoundUp'){
-              Write-Host "Window title from runner: $($p.MainWindowTitle)"
-              throw "No RoundUp native top-level window"
-            }
-            Write-Host "PASS: RoundUp native Windows window and embedded WebView2 opened, no Chrome needed"
-            $html = (Invoke-WebRequest 'http://127.0.0.1:45672/' -UseBasicParsing).Content
-            if ($html -notmatch '<title>RoundUp' -or $html -match '__RUNTIME_TOKEN__') {
-              throw "Frontend branding or dynamic authentication broken"
-            }
-            $appJs = (Invoke-WebRequest 'http://127.0.0.1:45672/app.js' -UseBasicParsing).Content
-            if ($appJs -notmatch 'RoundUpBridge') { throw "Legacy map UI not served" }
-            # RoundUp used to return HTTP 502 when uploading real field ZIPs.
-            # Exercise the exact original GeoZamir import API through the host.
-            $tokenMatch = [regex]::Match($html, 'window\.GEOZAMIR_TOKEN="([^"]+)"')
-            if (!$tokenMatch.Success) { throw "Original interpreter auth token missing" }
-            $token = [System.Net.WebUtility]::HtmlDecode($tokenMatch.Groups[1].Value)
-            $probeDir = Join-Path $env:RUNNER_TEMP 'roundup-import-probe'
+            if($p.MainWindowTitle -notmatch 'RoundUp'){throw "Windows native RoundUp window not visible"}
+            $match = [regex]::Matches($content,'Original interpreter connected on port (\d+)') | Select-Object -Last 1
+            if(!$match){throw "Could not determine the original backend port"}
+            $port = $match.Groups[1].Value
+            $originalUri = "http://127.0.0.1:$port/"
+            $originalHtml = (Invoke-WebRequest $originalUri -UseBasicParsing).Content
+            if($originalHtml -notmatch 'GEOZAMIR_TOKEN'){throw "Original unmodified Go server is not serving HTML"}
+            $tokenMatch = [regex]::Match($originalHtml,'window\.GEOZAMIR_TOKEN="([^"]+)"')
+            if(!$tokenMatch.Success){throw "Original token not found in Go backend HTML"}
+            $token = $tokenMatch.Groups[1].Value
+            $probeDir = Join-Path $env:RUNNER_TEMP 'roundup-direct-probe'
             New-Item -ItemType Directory -Path $probeDir -Force | Out-Null
-            $json = '{"objects":[{"object":"RoundUp upload smoke","geo":{"lat":49.84,"lng":24.03},"comment":"GPS + comment from archive"}]}'
+            $json = '{"objects":[{"object":"RoundUp upload smoke","geo":{"lat":49.84,"lng":24.03},"comment":"GPS + comment"}]}'
             Set-Content -Path (Join-Path $probeDir 'дані.json') -Value $json -Encoding utf8
             [IO.File]::WriteAllBytes((Join-Path $probeDir 'photo-data.dat'),[Security.Cryptography.RandomNumberGenerator]::GetBytes(1600000))
-            $probeZip = Join-Path $env:RUNNER_TEMP 'roundup-import-probe.zip'
+            $probeZip = Join-Path $env:RUNNER_TEMP 'roundup-direct-probe.zip'
             Compress-Archive -Path (Join-Path $probeDir '*') -DestinationPath $probeZip -Force
-            for($k=1;$k -le 4;$k++){
-              try {
-                $headers = @{
-                  'X-GeoZamir-Token' = $token
-                  'X-GeoZamir-Project' = 'default'
-                  'X-File-Name' = "roundup-proxy-smoke-$k.zip"
-                }
-                $upload = Invoke-RestMethod -Uri 'http://127.0.0.1:45672/api/import' -Method Post -Headers $headers -ContentType 'application/zip' -InFile $probeZip -TimeoutSec 50
-                if (!$upload.item.id -and !$upload.duplicate) { throw "Unexpected import response: $($upload|ConvertTo-Json -Compress)" }
-                Write-Host "PASS: ZIP import $k/4 via original GeoZamir backend, item=$($upload.item.id)"
-              } catch {
-                Write-Host "FAIL: original ZIP import $k/4 — $($_.Exception.Message)"
-                if(Test-Path $nativeLog){ Get-Content $nativeLog -Tail 130 }
-                throw
+            for($i=1;$i -le 4;$i++){
+              $headers = @{
+                'X-GeoZamir-Token' = $token
+                'X-GeoZamir-Project' = 'default'
+                'X-File-Name' = "roundup-direct-smoke-$i.zip"
               }
+              $result = Invoke-RestMethod -Uri ($originalUri + 'api/import') -Method Post -Headers $headers -ContentType 'application/zip' -InFile $probeZip -TimeoutSec 45
+              if(!$result.item.id -and !$result.duplicate){throw "Core import response missing item"}
+              Write-Host "PASS: original untouched GeoZamir ZIP API $i/4"
             }
-            $legacy = @(Get-Process chrome -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -match 'GeoZamir|ГеоЗамір' })
-            Write-Host "Legacy browser windows still visible: $($legacy.Count)" 
-            $body = '{"version":1,"shapes":[{"id":"smoke","points":[[49.8,24.1],[49.8,24.2],[49.9,24.2]]}],"cells":[]}'
-            Invoke-RestMethod -Uri 'http://127.0.0.1:45672/roundup/coverage?project=smoke-test' -Method Put -Headers @{'X-RoundUp-Local'='1'} -Body $body -ContentType 'application/json' | Out-Null
-            $saved = Invoke-RestMethod -Uri 'http://127.0.0.1:45672/roundup/coverage?project=smoke-test'
-            if ($saved.shapes.Count -ne 1) { throw "Coverage data not saved" }
-            Write-Host "PASS: RoundUp server, map UI, backend token and persistent coverage."
+            $p.Refresh()
+            if($p.HasExited){throw "RoundUp exited while original core handled ZIP imports"}
+            Write-Host "PASS: branded RoundUp WebView2 + unmodified original GeoZamir without intermediary or API proxy."
           } finally {
-            if (!$p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
-            if (!$ready) {
-              $log = Join-Path $env:LOCALAPPDATA 'RoundUp/logs/roundup-host.log'
-              if (Test-Path $log) { Get-Content $log -Tail 100 }
-            }
+            if(!$p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}
+            if(!$ready -and (Test-Path $log)){Get-Content $log -Tail 150}
           }
-      - name: Verify frontend stays open and branded when backend fails
+      - name: Verify native window stays open when legacy core is absent
         shell: pwsh
         run: |
           $bundle = (Resolve-Path dist/app/GeoZamirCore.exe).Path
           $disabled = "$bundle.startup-test-disabled"
           Move-Item $bundle $disabled
           $exe = (Resolve-Path dist/app/RoundUp.exe).Path
+          $log = Join-Path $env:LOCALAPPDATA 'RoundUp/logs/roundup-host.log'
+          $before = if(Test-Path $log){(Get-Content $log -Raw).Length}else{0}
           $p = $null
           try {
             $p = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe -Parent) -PassThru
-            $ok = $false
-            for ($i=0; $i -lt 24; $i++) {
-              Start-Sleep -Milliseconds 400
+            $ready = $false
+            for($i=0;$i -lt 40;$i++){
+              Start-Sleep -Milliseconds 350
               $p.Refresh()
-              if ($p.HasExited) { throw "RoundUp closed on backend failure, exit $($p.ExitCode)" }
-              try {
-                $status = Invoke-RestMethod 'http://127.0.0.1:45672/roundup/status' -TimeoutSec 1
-                $page = (Invoke-WebRequest 'http://127.0.0.1:45672/' -UseBasicParsing -TimeoutSec 1).Content
-                if (!$status.ready -and $page -match 'Готуємо вашу карту') {
-                  $ok = $true
-                  break
-                }
-              } catch {}
+              if($p.HasExited){throw "Missing backend crashed RoundUp"}
+              $all = if(Test-Path $log){Get-Content $log -Raw}else{''}
+              $new = if($all.Length -gt $before){$all.Substring($before)}else{''}
+              if($new -match 'native-window-shown' -and $new -match 'CORE STARTUP:'){$ready=$true;break}
             }
-            if (!$ok) { throw "RoundUp failed to display its own loading screen without legacy core" }
-            Start-Sleep -Seconds 2
-            $p.Refresh()
-            if ($p.HasExited) { throw "RoundUp crashed after showing loading screen" }
-            Write-Host "PASS: missing legacy backend cannot close RoundUp or show a fatal popup"
-          }
-          finally {
-            if ($p -and !$p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+            if(!$ready){throw "Missing backend did not show a diagnostic native window"}
+            Write-Host "PASS: native window remains open and displays backend error."
+          } finally {
+            if($p -and !$p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}
             Move-Item $disabled $bundle -Force
           }
       - name: Compile and smoke-test launcher UI
@@ -192,7 +156,7 @@ jobs:
             choco install innosetup -y --no-progress
             if ($LASTEXITCODE -ne 0) { throw "Inno Setup unavailable" }
           }
-          & $iscc '/DAppVersion=6.1.2' 'installer/RoundUp.iss'
+          & $iscc '/DAppVersion=6.2.0' 'installer/RoundUp.iss'
           if ($LASTEXITCODE -ne 0) { throw "Inno installer failed" }
           $setup = (Resolve-Path dist/setup/RoundUpSetup-win-x64.exe).Path
           $p = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait -PassThru
@@ -208,7 +172,7 @@ jobs:
           Compress-Archive -Path dist/app/* -DestinationPath release/RoundUp-App-win-x64.zip -CompressionLevel Optimal
           $hash=(Get-FileHash release/RoundUp-App-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
           [ordered]@{
-            version='v6.1.2'
+            version='v6.2.0'
             archive='RoundUp-App-win-x64.zip'
             executable='RoundUp.exe'
             sha256=$hash
@@ -228,11 +192,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag='v6.1.2'
+          $tag='v6.2.0'
           gh release view $tag --json tagName *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --clobber
           } else {
-            gh release create $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --title 'RoundUp 6.1.2 — Windows' --notes 'Відновлено надійну передачу ZIP-архівів до оригінального GeoZamir без зміни формату даних; збережено єдину шапку RoundUp, автооновлення, проєкти, фото та бекапи. Додано Windows-тести чотирьох імпортів.' --target $env:GITHUB_SHA
+            gh release create $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --title 'RoundUp 6.2.0 — Windows' --notes 'GeoZamir 5.5 використовується напряму: RoundUp вбудовує лише оновлену графіку в WebView2. Повністю прибрано проміжний HTTP-сервер і проксі; ZIP, GPS, фото, архіви та проєкти обробляє оригінальне ядро.' --target $env:GITHUB_SHA
           }
           if ($LASTEXITCODE -ne 0) { throw "GitHub Release publishing failed" }

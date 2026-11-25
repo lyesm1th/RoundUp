@@ -1,5 +1,8 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -7,14 +10,14 @@ using Microsoft.Web.WebView2.WinForms;
 namespace RoundUp.App;
 
 /// <summary>
-/// A proper Windows desktop window. WebView2 is embedded in this WinForms form;
-/// ordinary map navigation never opens Chrome or another external browser.
+/// Native Windows window that opens the UNMODIFIED original GeoZamir server.
+/// It replaces only page styling and static UI resources inside WebView2.
+/// All /api/* requests go directly from WebView2 to GeoZamir: no proxy exists.
 /// </summary>
 internal sealed class RoundUpWindow : Form
 {
     internal const string WindowTitle = "RoundUp — карта об'їздів";
-    private readonly Uri _address;
-    private readonly Uri _host;
+    private static readonly object CoverageSync = new();
     private readonly string _dataDirectory;
     private readonly string _projectsDirectory;
     private readonly Action<string> _log;
@@ -22,25 +25,22 @@ internal sealed class RoundUpWindow : Form
     private readonly bool _primary;
     private readonly WebView2 _browser;
     private readonly Label _status;
-    private bool _initialized;
+    private readonly string _uiDirectory = Path.Combine(AppContext.BaseDirectory, "ui");
+    private Uri? _coreAddress;
+    private Uri? _initialAddress;
+    private string? _coreToken;
+    private bool _webViewReady;
+    private bool _navigationStarted;
 
     internal RoundUpWindow(
-        Uri address,
-        Uri host,
-        string dataDirectory,
-        string projectsDirectory,
-        Action<string> log,
-        Action onPrimaryClosed,
-        bool primary)
+        string dataDirectory, string projectsDirectory,
+        Action<string> log, Action onPrimaryClosed, bool primary)
     {
-        _address = address;
-        _host = host;
         _dataDirectory = dataDirectory;
         _projectsDirectory = projectsDirectory;
         _log = log;
         _onPrimaryClosed = onPrimaryClosed;
         _primary = primary;
-
         Text = primary ? WindowTitle : "RoundUp — додаткове вікно";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(860, 600);
@@ -53,7 +53,7 @@ internal sealed class RoundUpWindow : Form
         _status = new Label
         {
             Dock = DockStyle.Fill,
-            Text = "RoundUp\n\nВідкриваємо вашу карту...",
+            Text = "RoundUp\n\nЗапускаємо інтерпретатор та відкриваємо карту...",
             BackColor = Color.FromArgb(12, 30, 39),
             ForeColor = Color.FromArgb(221, 242, 231),
             Font = new Font("Segoe UI", 17, FontStyle.Regular),
@@ -65,24 +65,17 @@ internal sealed class RoundUpWindow : Form
             Visible = false,
             DefaultBackgroundColor = Color.FromArgb(12, 30, 39)
         };
-
         Controls.Add(_status);
         Controls.Add(_browser);
-
         Shown += (_, _) =>
         {
             _log("native-window-shown");
             if (_primary) WindowState = FormWindowState.Maximized;
         };
         Load += async (_, _) => await InitializeWebViewAsync();
-        FormClosed += (_, _) =>
-        {
-            if (_primary) _onPrimaryClosed();
-        };
+        FormClosed += (_, _) => { if (_primary) _onPrimaryClosed(); };
     }
 
-    // Windows 11 supports custom caption colors. Older Windows simply
-    // keep their system title bar; RoundUp never draws a duplicate header.
     [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(
         IntPtr handle, int attribute, ref int value, int size);
@@ -103,69 +96,228 @@ internal sealed class RoundUpWindow : Form
         catch (EntryPointNotFoundException) { }
     }
 
+    internal void Connect(Uri server, string token, Uri? initialAddress = null)
+    {
+        _coreAddress = server;
+        _initialAddress = initialAddress ?? server;
+        _coreToken = token;
+        _log("Native window connected directly to original GeoZamir at " + server);
+        StartNavigation();
+    }
+
+    internal void ShowConnectionError(string error)
+    {
+        if (_navigationStarted) return;
+        _status.Visible = true;
+        _status.Text = "RoundUp\n\nНе вдалося під'єднатися до інтерпретатора.\n" +
+            error + "\n\nДіагностика: %LOCALAPPDATA%\\RoundUp\\logs\\roundup-host.log";
+    }
+
     private async Task InitializeWebViewAsync()
     {
-        if (_initialized) return;
-        _initialized = true;
         try
         {
             _log("webview-init-started");
             _log("webview-runtime: " + CoreWebView2Environment.GetAvailableBrowserVersionString());
-            // WebView2 must be initialized on this Form's STA message-loop thread.
-            // User profile is outside app/ and therefore survives launcher updates.
             var profile = Path.Combine(_dataDirectory, "webview");
             Directory.CreateDirectory(profile);
-            _log("webview-environment-creating");
             var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: profile);
-            _log("webview-control-initializing");
             await _browser.EnsureCoreWebView2Async(environment);
             _browser.CoreWebView2.Settings.IsStatusBarEnabled = false;
             _browser.CoreWebView2.Settings.AreDevToolsEnabled = false;
-            _browser.CoreWebView2.Settings.IsZoomControlEnabled = true;
             _browser.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
             _browser.CoreWebView2.NavigationStarting += OnNavigationStarting;
-            _browser.NavigationCompleted += (_, args) =>
-                _log("native-navigation-complete: " + (args.IsSuccess ? "ok" : args.WebErrorStatus.ToString()));
-            _browser.Visible = true;
-            _status.Visible = false;
-            _browser.Source = _address;
-            _log("webview-ready: " + _address);
+            _browser.NavigationCompleted += OnNavigationCompleted;
+            _webViewReady = true;
+            _log("webview-ready");
+            StartNavigation();
         }
-        catch (Exception e)
+        catch (Exception error)
         {
+            _log("WebView2 init error: " + error);
             _browser.Visible = false;
             _status.Visible = true;
-            _status.Text = "RoundUp не зміг відкрити вбудовану карту.\n\n" +
-                "Потрібен Microsoft Edge WebView2 Runtime (безкоштовний компонент Windows).\n\n" +
-                "Перевірте його наявність або встановіть із сайту Microsoft.\n" +
-                "Деталі: %LOCALAPPDATA%\\RoundUp\\logs\\roundup-host.log";
-            _log("Native WebView2 init error: " + e);
+            _status.Text = "RoundUp не зміг відкрити карту.\n\n" +
+                "Перевірте Microsoft Edge WebView2 Runtime та перезапустіть RoundUp.\n" +
+                "%LOCALAPPDATA%\\RoundUp\\logs\\roundup-host.log";
         }
     }
 
-    private bool IsRoundUpAddress(Uri uri) =>
-        uri.Scheme == Uri.UriSchemeHttp &&
-        uri.Host.Equals(_host.Host, StringComparison.OrdinalIgnoreCase) &&
-        uri.Port == _host.Port;
+    private void StartNavigation()
+    {
+        if (!_webViewReady || _coreAddress is null || _coreToken is null || _navigationStarted) return;
+        _navigationStarted = true;
+        // Every request (especially POST /api/import and PUT /api/index) goes
+        // directly to the original server. Only the static appearance is swapped.
+        _browser.CoreWebView2.AddWebResourceRequestedFilter(
+            _coreAddress.GetLeftPart(UriPartial.Authority) + "/*",
+            CoreWebView2WebResourceContext.All);
+        _browser.CoreWebView2.WebResourceRequested += OnWebResourceRequested;
+        _browser.Visible = true;
+        _status.Visible = false;
+        _browser.Source = _initialAddress ?? _coreAddress;
+        _log("direct-core-navigation-started: " + _coreAddress);
+    }
+
+    private bool IsCoreAddress(Uri uri) =>
+        _coreAddress is not null &&
+        uri.Scheme.Equals(_coreAddress.Scheme, StringComparison.OrdinalIgnoreCase) &&
+        uri.Host.Equals(_coreAddress.Host, StringComparison.OrdinalIgnoreCase) &&
+        uri.Port == _coreAddress.Port;
+
+    private void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs args)
+    {
+        try
+        {
+            if (!Uri.TryCreate(args.Request.Uri, UriKind.Absolute, out var uri) || !IsCoreAddress(uri))
+                return;
+            var route = uri.AbsolutePath;
+            // API and all project/media requests are NEVER intercepted.
+            if (route.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)) return;
+            if (route.Equals("/roundup/coverage", StringComparison.OrdinalIgnoreCase))
+            {
+                HandleCoverage(args, uri);
+                return;
+            }
+            string? file = route switch
+            {
+                "/" or "/index.html" => "index.html",
+                "/app.js" => "app.js",
+                "/style.css" => "style.css",
+                "/roundup-theme.css" => "roundup-theme.css",
+                "/roundup-addon.js" => "roundup-addon.js",
+                "/favicon.svg" => "favicon.svg",
+                "/vendor/jszip.min.js" => Path.Combine("vendor", "jszip.min.js"),
+                _ => null
+            };
+            if (file is null) return;
+            var path = Path.Combine(_uiDirectory, file);
+            if (!File.Exists(path)) { _log("Missing visual asset: " + path); return; }
+            byte[] bytes;
+            if (file == "index.html")
+            {
+                var html = File.ReadAllText(path)
+                    .Replace("__RUNTIME_TOKEN__", System.Net.WebUtility.HtmlEncode(_coreToken));
+                bytes = Encoding.UTF8.GetBytes(html);
+                _log("direct-core-ui-override: original server, RoundUp HTML");
+            }
+            else bytes = File.ReadAllBytes(path);
+            var type = Path.GetExtension(path).ToLowerInvariant() switch
+            {
+                ".html" => "text/html; charset=utf-8",
+                ".css" => "text/css; charset=utf-8",
+                ".js" => "application/javascript; charset=utf-8",
+                ".svg" => "image/svg+xml",
+                _ => "application/octet-stream"
+            };
+            args.Response = MakeResponse(bytes, 200, "OK", type);
+        }
+        catch (Exception error) { _log("Static visual override error: " + error); }
+    }
+
+    private CoreWebView2WebResourceResponse MakeResponse(
+        byte[] content, int status, string reason, string type) =>
+        _browser.CoreWebView2.Environment.CreateWebResourceResponse(
+            new MemoryStream(content, writable: false),
+            status, reason, "Content-Type: " + type + "\r\nCache-Control: no-store");
+
+    private void HandleCoverage(CoreWebView2WebResourceRequestedEventArgs args, Uri uri)
+    {
+        // RoundUp-specific territory marks are private local files, not part of
+        // the GeoZamir API. They are served without opening a second HTTP port.
+        try
+        {
+            string project = "default";
+            foreach (var parameter in uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var pair = parameter.Split('=', 2);
+                if (pair.Length == 2 && pair[0] == "project")
+                {
+                    project = Uri.UnescapeDataString(pair[1].Replace("+", " "));
+                    break;
+                }
+            }
+            var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(project))).ToLowerInvariant();
+            var folder = Path.Combine(_projectsDirectory, "coverage");
+            Directory.CreateDirectory(folder);
+            var path = Path.Combine(folder, hash + ".json");
+            var method = args.Request.Method.ToUpperInvariant();
+            if (method == "GET")
+            {
+                var bytes = File.Exists(path)
+                    ? File.ReadAllBytes(path)
+                    : Encoding.UTF8.GetBytes("{\"version\":1,\"shapes\":[],\"cells\":[]}");
+                args.Response = MakeResponse(bytes, 200, "OK", "application/json; charset=utf-8");
+                return;
+            }
+            if (method == "PUT")
+            {
+                using var memory = new MemoryStream();
+                args.Request.Content?.CopyTo(memory);
+                if (memory.Length > 4_000_000)
+                {
+                    args.Response = MakeResponse(Encoding.UTF8.GetBytes("{\"error\":\"too large\"}"),
+                        413, "Payload Too Large", "application/json");
+                    return;
+                }
+                using var document = JsonDocument.Parse(memory.ToArray());
+                var root = document.RootElement;
+                if (!root.TryGetProperty("shapes", out var shapes) ||
+                    shapes.ValueKind != JsonValueKind.Array ||
+                    !root.TryGetProperty("cells", out var cells) ||
+                    cells.ValueKind != JsonValueKind.Array)
+                    throw new JsonException("Invalid coverage shape");
+                lock (CoverageSync)
+                {
+                    var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                    File.WriteAllBytes(temporary, memory.ToArray());
+                    File.Move(temporary, path, overwrite: true);
+                }
+                args.Response = MakeResponse(Encoding.UTF8.GetBytes("{\"saved\":true}"),
+                    200, "OK", "application/json");
+                return;
+            }
+            args.Response = MakeResponse([], 405, "Method Not Allowed", "text/plain");
+        }
+        catch (Exception error)
+        {
+            _log("Coverage local file error: " + error);
+            args.Response = MakeResponse(Encoding.UTF8.GetBytes("{\"error\":\"local storage\"}"),
+                500, "Internal Server Error", "application/json");
+        }
+    }
+
+    private async void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs args)
+    {
+        if (!args.IsSuccess) { _log("Direct core navigation failed: " + args.WebErrorStatus); return; }
+        try
+        {
+            var title = await _browser.CoreWebView2.ExecuteScriptAsync("document.title");
+            if (title.Contains("RoundUp", StringComparison.OrdinalIgnoreCase))
+                _log("direct-core-ui-ready: " + title);
+            else
+                _log("Direct core loaded unexpected title: " + title);
+        }
+        catch (Exception error) { _log("Direct core page check: " + error.Message); }
+    }
 
     private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs args)
     {
-        if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out var url) ||
-            IsRoundUpAddress(url) || url.Scheme == "about") return;
+        if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out var uri) ||
+            IsCoreAddress(uri) || uri.Scheme == "about") return;
         args.Cancel = true;
-        OpenExternalLink(url);
+        OpenExternalLink(uri);
     }
 
     private void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs args)
     {
-        // Prevent a native web popup from falling back to external Chrome.
         args.Handled = true;
         if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out var uri)) return;
-        if (IsRoundUpAddress(uri))
+        if (IsCoreAddress(uri) && _coreAddress is not null && _coreToken is not null)
         {
             var child = new RoundUpWindow(
-                uri, _host, _dataDirectory, _projectsDirectory,
-                _log, _onPrimaryClosed, primary: false);
+                _dataDirectory, _projectsDirectory, _log, _onPrimaryClosed, primary: false);
+            child.Connect(_coreAddress, _coreToken, uri);
             child.Show(this);
         }
         else OpenExternalLink(uri);
@@ -173,10 +325,8 @@ internal sealed class RoundUpWindow : Form
 
     private void OpenExternalLink(Uri uri)
     {
-        // Links to Google Maps and other sites deliberately open in the user's
-        // default browser; the RoundUp application itself stays a native window.
-        if (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp) return;
+        if (uri.Scheme is not (Uri.UriSchemeHttps or Uri.UriSchemeHttp)) return;
         try { Process.Start(new ProcessStartInfo { FileName = uri.ToString(), UseShellExecute = true }); }
-        catch (Exception e) { _log("Open external link error: " + e.Message); }
+        catch (Exception error) { _log("Open external link error: " + error.Message); }
     }
 }
