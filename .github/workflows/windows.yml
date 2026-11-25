@@ -201,7 +201,10 @@ jobs:
             } else {
               gh release create $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --title 'RoundUp 6.2.0 — Windows' --notes 'GeoZamir 5.5 використовується напряму: RoundUp вбудовує лише оновлену графіку в WebView2. Повністю прибрано проміжний HTTP-сервер і проксі; ZIP, GPS, фото, архіви та проєкти обробляє оригінальне ядро.' --target $env:GITHUB_SHA
             }
-            if ($LASTEXITCODE -eq 0) { $published = $true; break }
+            if ($LASTEXITCODE -eq 0) {
+              gh release edit $tag --draft=false --latest
+              if ($LASTEXITCODE -eq 0) { $published = $true; break }
+            }
             Write-Warning "Transient GitHub release API failure; attempt $attempt of 6"
             Start-Sleep -Seconds (5 * $attempt)
           }
