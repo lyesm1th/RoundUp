@@ -145,6 +145,7 @@ internal sealed class LauncherForm : Form
         Shown += async (_, _) =>
         {
             LauncherLog.Write("ui-shown");
+            _ = AppBootstrap.PrepareInstalledCopyAsync();
             await CheckAsync();
         };
     }
