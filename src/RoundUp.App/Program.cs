@@ -148,7 +148,8 @@ internal static class Program
             OpenBrowser(localUri.ToString());
             try { await Task.Delay(Timeout.InfiniteTimeSpan, Stop.Token); }
             catch (OperationCanceledException) { }
-            await app.StopAsync(TimeSpan.FromSeconds(8));
+            using var stopTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            await app.StopAsync(stopTimeout.Token);
         }
         catch (Exception error)
         {
