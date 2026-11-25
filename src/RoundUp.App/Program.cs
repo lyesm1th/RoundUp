@@ -267,22 +267,6 @@ internal static class Program
         }
     }
 
-    private static int FindPort()
-    {
-        for (int port = PreferredPort; port < PreferredPort + 8; port++)
-        {
-            try
-            {
-                using var socket = new TcpListener(IPAddress.Loopback, port);
-                socket.Start();
-                return port;
-            }
-            catch (SocketException) { }
-        }
-        throw new IOException("Локальні порти RoundUp зайняті.");
-    }
-
-
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "FindWindowW")]
     private static extern IntPtr FindWindow(string? className, string windowName);
 
