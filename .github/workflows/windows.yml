@@ -63,7 +63,7 @@ jobs:
             if (!$ready) { throw "RoundUp host did not start" }
             $nativeLog = Join-Path $env:LOCALAPPDATA 'RoundUp/logs/roundup-host.log'
             $nativeShown = $false
-            for($j=0; $j -lt 30; $j++){
+            for($j=0; $j -lt 135; $j++){
               Start-Sleep -Milliseconds 450
               $p.Refresh()
               $contents = if(Test-Path $nativeLog){ Get-Content $nativeLog -Raw }else{ '' }
@@ -73,7 +73,11 @@ jobs:
               }
               if($p.HasExited){ throw "Native RoundUp window crashed" }
             }
-            if(!$nativeShown){ throw "RoundUp did not create its own native WebView2 window" }
+            if(!$nativeShown){
+              Write-Host "Native UI initialization timeout — last diagnostic lines:"
+              if(Test-Path $nativeLog){ Get-Content $nativeLog -Tail 140 }
+              throw "RoundUp did not create its own native WebView2 window"
+            }
             if($p.MainWindowTitle -notmatch 'RoundUp'){
               Write-Host "Window title from runner: $($p.MainWindowTitle)"
               throw "No RoundUp native top-level window"

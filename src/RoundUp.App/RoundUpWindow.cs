@@ -141,11 +141,15 @@ internal sealed class RoundUpWindow : Form
         _initialized = true;
         try
         {
+            _log("webview-init-started");
+            _log("webview-runtime: " + CoreWebView2Environment.GetAvailableBrowserVersionString());
             // WebView2 must be initialized on this Form's STA message-loop thread.
             // User profile is outside app/ and therefore survives launcher updates.
             var profile = Path.Combine(_dataDirectory, "webview");
             Directory.CreateDirectory(profile);
+            _log("webview-environment-creating");
             var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: profile);
+            _log("webview-control-initializing");
             await _browser.EnsureCoreWebView2Async(environment);
             _browser.CoreWebView2.Settings.IsStatusBarEnabled = false;
             _browser.CoreWebView2.Settings.AreDevToolsEnabled = false;
