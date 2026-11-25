@@ -36,7 +36,7 @@ internal static class Program
     private static Process? core;
     private static Uri? coreUri;
     private static Uri? localUri;
-    private static Thread? trayThread;
+    private static Thread? desktopThread;
     private static string? startupError;
     private static HashSet<int> knownChromeIds = [];
 
@@ -54,7 +54,7 @@ internal static class Program
         using var instance = new Mutex(true, @"Local\RoundUpDesktopHost_" + Environment.UserName, out bool first);
         if (!first)
         {
-            OpenBrowser("http://127.0.0.1:" + PreferredPort + "/");
+            ShowExistingWindow();
             return;
         }
 
@@ -79,7 +79,7 @@ internal static class Program
             var app = builder.Build();
 
             app.MapGet("/roundup/status", () =>
-                Results.Json(new { name = "RoundUp", ready = coreUri is not null, error = startupError, version = "6.0.1" }));
+                Results.Json(new { name = "RoundUp", ready = coreUri is not null, error = startupError, version = "6.1.0" }));
             app.MapGet("/roundup/coverage", (HttpContext ctx) =>
             {
                 var path = CoveragePath(ctx.Request.Query["project"].ToString());
@@ -153,8 +153,7 @@ internal static class Program
             });
             await app.StartAsync(Stop.Token);
             WriteLog("RoundUp UI listening at " + localUri);
-            StartTray();
-            OpenBrowser(localUri.ToString());
+            StartNativeWindow();
             _ = Task.Run(InitializeCoreSafelyAsync);
             try { await Task.Delay(Timeout.InfiniteTimeSpan, Stop.Token); }
             catch (OperationCanceledException) { }
@@ -193,7 +192,7 @@ p{line-height:1.6;color:#bfd5d7;font-size:15px}.loader{width:32px;height:32px;bo
 <div class="loader"></div><p id="hint">Зазвичай це займає кілька секунд. Не закривайте RoundUp.</p></main>
 <script>setInterval(async()=>{try{const r=await fetch('/roundup/status',{cache:'no-store'});const s=await r.json();
 if(s.ready){location.replace('/?started=1');return}
-if(s.error)document.querySelector('#hint').textContent='Ядро не відповідає. Закрийте RoundUp через значок у треї та запустіть знову. Журнал: %LOCALAPPDATA%\\RoundUp\\logs\\roundup-host.log';
+if(s.error)document.querySelector('#hint').textContent='Ядро не відповідає. Закрийте вікно RoundUp та запустіть програму знову. Журнал: %LOCALAPPDATA%\\RoundUp\\logs\\roundup-host.log';
 }catch(_){}},1000)</script></body></html>
 """;
 
@@ -221,7 +220,8 @@ if(s.error)document.querySelector('#hint').textContent='Ядро не відпо
     {
         // Old Go runtime opens a separate Chrome app window. Hide ONLY windows
         // newly started by this launch, never the user's already-open Chrome.
-        for (var attempt = 0; attempt < 16; attempt++)
+        var hidden = new HashSet<int>();
+        for (var attempt = 0; attempt < 260 && !Stop.IsCancellationRequested; attempt++)
         {
             foreach (var process in Process.GetProcessesByName("chrome"))
             {
@@ -235,13 +235,15 @@ if(s.error)document.querySelector('#hint').textContent='Ядро не відпо
                         process.MainWindowHandle != IntPtr.Zero)
                     {
                         ShowWindow(process.MainWindowHandle, 0);
-                        WriteLog("Hidden newly-opened legacy Chrome window; RoundUp is primary.");
+                        if (hidden.Add(process.Id))
+                            WriteLog("Hidden legacy core browser window. Main UI stays in native RoundUp.");
                     }
                 }
                 catch { }
                 finally { process.Dispose(); }
             }
-            await Task.Delay(350);
+            try { await Task.Delay(350, Stop.Token); }
+            catch (OperationCanceledException) { break; }
         }
     }
 
@@ -480,56 +482,52 @@ if(s.error)document.querySelector('#hint').textContent='Ядро не відпо
         throw new IOException("Локальні порти RoundUp зайняті.");
     }
 
-    private static void StartTray()
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "FindWindowW")]
+    private static extern IntPtr FindWindow(string? className, string windowName);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr window);
+
+    private static void ShowExistingWindow()
     {
-        trayThread = new Thread(() =>
+        // Reopen the actual Windows app instead of launching Chrome on a second click.
+        for (var attempt = 0; attempt < 12; attempt++)
+        {
+            var handle = FindWindow(null, RoundUpWindow.WindowTitle);
+            if (handle != IntPtr.Zero)
+            {
+                ShowWindow(handle, 9); // SW_RESTORE if minimized
+                SetForegroundWindow(handle);
+                return;
+            }
+            Thread.Sleep(150);
+        }
+    }
+
+    private static void StartNativeWindow()
+    {
+        // Main() resumes after awaits on a worker thread. WebView2 requires
+        // a separate dedicated STA thread with a live WinForms message pump.
+        desktopThread = new Thread(() =>
         {
             try
             {
-                using var menu = new ContextMenuStrip();
-                menu.Items.Add("Відкрити RoundUp", null, (_, _) => OpenBrowser(localUri?.ToString() ?? ""));
-                menu.Items.Add("Відкрити папку проєктів", null, (_, _) =>
-                    Process.Start(new ProcessStartInfo { FileName = Projects, UseShellExecute = true }));
-                menu.Items.Add(new ToolStripSeparator());
-                menu.Items.Add("Закрити RoundUp", null, (_, _) =>
-                {
-                    Stop.Cancel();
-                    System.Windows.Forms.Application.ExitThread();
-                });
-                using var tray = new NotifyIcon
-                {
-                    Text = "RoundUp — карта об'їздів",
-                    Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application,
-                    Visible = true,
-                    ContextMenuStrip = menu
-                };
-                tray.DoubleClick += (_, _) => OpenBrowser(localUri?.ToString() ?? "");
-                System.Windows.Forms.Application.Run(new ApplicationContext());
-                tray.Visible = false;
+                System.Windows.Forms.Application.EnableVisualStyles();
+                System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
+                using var window = new RoundUpWindow(
+                    localUri!, localUri!, Data, Projects, WriteLog,
+                    () => Stop.Cancel(), primary: true);
+                System.Windows.Forms.Application.Run(window);
             }
-            catch (Exception ex) { WriteLog("Tray error: " + ex.Message); }
-        })
-        { IsBackground = true, Name = "RoundUpTray" };
-        trayThread.SetApartmentState(ApartmentState.STA);
-        trayThread.Start();
-    }
-
-    private static void OpenBrowser(string url)
-    {
-        if (string.IsNullOrWhiteSpace(url)) return;
-        try
-        {
-            var chrome = new[]
+            catch (Exception error)
             {
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Google", "Chrome", "Application", "chrome.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Google", "Chrome", "Application", "chrome.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Google", "Chrome", "Application", "chrome.exe")
-            }.FirstOrDefault(File.Exists);
-            Process.Start(chrome is not null
-                ? new ProcessStartInfo { FileName = chrome, Arguments = "--new-window \"" + url + "\"", UseShellExecute = true }
-                : new ProcessStartInfo { FileName = url, UseShellExecute = true });
-        }
-        catch (Exception ex) { WriteLog("Browser error: " + ex.Message); }
+                WriteLog("Native window FATAL: " + error);
+                Stop.Cancel();
+            }
+        })
+        { IsBackground = true, Name = "RoundUpDesktopSTA" };
+        desktopThread.SetApartmentState(ApartmentState.STA);
+        desktopThread.Start();
     }
 
     private static void WriteLog(string message)
