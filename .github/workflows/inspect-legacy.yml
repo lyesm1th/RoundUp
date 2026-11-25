@@ -32,11 +32,11 @@ jobs:
             Write-Host "Program is running: $(!$proc.HasExited)"
             if (Test-Path $stdout) {
               $log = (Get-Content -Path $stdout -Raw -ErrorAction SilentlyContinue)
-              Write-Host "Stdout excerpt: $($log.Substring(0,[Math]::Min(1200,$log.Length)))"
+              if (![string]::IsNullOrEmpty($log)) { Write-Host "Stdout excerpt: $($log.Substring(0,[Math]::Min(1200,$log.Length)))" }
             }
             if (Test-Path $stderr) {
               $log = (Get-Content -Path $stderr -Raw -ErrorAction SilentlyContinue)
-              Write-Host "Stderr excerpt: $($log.Substring(0,[Math]::Min(1200,$log.Length)))"
+              if (![string]::IsNullOrEmpty($log)) { Write-Host "Stderr excerpt: $($log.Substring(0,[Math]::Min(1200,$log.Length)))" }
             }
             $childProcesses = @(Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $proc.Id } | Select-Object -ExpandProperty ProcessId)
             $ownedIds = @($proc.Id) + $childProcesses
