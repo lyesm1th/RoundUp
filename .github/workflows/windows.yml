@@ -193,19 +193,43 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag='v6.2.0'
-          $published = $false
+          $assetFiles = @(
+            'release/RoundUp-App-win-x64.zip',
+            'release/roundup-update.json',
+            'release/RoundUpLauncher.exe',
+            'release/RoundUpSetup-win-x64.exe'
+          )
+          $exists = $false
           for ($attempt = 1; $attempt -le 6; $attempt++) {
             gh release view $tag --json tagName *> $null
-            if ($LASTEXITCODE -eq 0) {
-              gh release upload $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --clobber
-            } else {
-              gh release create $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --title 'RoundUp 6.2.0 — Windows' --notes 'GeoZamir 5.5 використовується напряму: RoundUp вбудовує лише оновлену графіку в WebView2. Повністю прибрано проміжний HTTP-сервер і проксі; ZIP, GPS, фото, архіви та проєкти обробляє оригінальне ядро.' --target $env:GITHUB_SHA
-            }
-            if ($LASTEXITCODE -eq 0) {
-              gh release edit $tag --draft=false --latest
-              if ($LASTEXITCODE -eq 0) { $published = $true; break }
-            }
-            Write-Warning "Transient GitHub release API failure; attempt $attempt of 6"
+            if ($LASTEXITCODE -eq 0) { $exists = $true; break }
+            gh release create $tag --draft --title 'RoundUp 6.2.0 — Windows' --notes 'Оригінальний GeoZamir 5.5 без змін. Власне вікно RoundUp, оновлена графіка й прямий імпорт ZIP без проксі.' --target $env:GITHUB_SHA
+            if ($LASTEXITCODE -eq 0) { $exists = $true; break }
             Start-Sleep -Seconds (5 * $attempt)
           }
-          if (!$published) { throw "GitHub Release publishing failed after 6 attempts" }
+          if (!$exists) { throw "Cannot create or open release $tag" }
+          foreach ($file in $assetFiles) {
+            $name = [IO.Path]::GetFileName($file)
+            $uploaded = $false
+            for ($attempt = 1; $attempt -le 6; $attempt++) {
+              $assetInfo = gh release view $tag --json assets | ConvertFrom-Json
+              $found = @($assetInfo.assets | Where-Object { $_.name -eq $name -and $_.size -gt 0 })
+              if ($LASTEXITCODE -eq 0 -and $found.Count -gt 0) {
+                Write-Host "Already uploaded: $name"
+                $uploaded = $true
+                break
+              }
+              gh release upload $tag $file
+              if ($LASTEXITCODE -eq 0) { $uploaded = $true; break }
+              Write-Warning "Retrying missing release asset: $name, attempt $attempt"
+              Start-Sleep -Seconds (5 * $attempt)
+            }
+            if (!$uploaded) { throw "Could not upload $name" }
+          }
+          $published = $false
+          for ($attempt = 1; $attempt -le 6; $attempt++) {
+            gh release edit $tag --draft=false --latest
+            if ($LASTEXITCODE -eq 0) { $published = $true; break }
+            Start-Sleep -Seconds (5 * $attempt)
+          }
+          if (!$published) { throw "Could not publish completed release $tag" }
