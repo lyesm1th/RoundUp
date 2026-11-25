@@ -163,12 +163,12 @@ jobs:
         shell: pwsh
         run: |
           if (!(Test-Path app/RoundUp.exe)) {
-            $legacyArchive = "GeoZamir_5.5_GUI_Launcher_Windows.zip"
-            if (!(Test-Path $legacyArchive)) {
-              throw "Missing app/RoundUp.exe or legacy Windows ZIP. No release published."
+            $legacyArchives = @(Get-ChildItem -File -Path . -Filter "GeoZamir*_Windows*.zip")
+            if ($legacyArchives.Count -ne 1) {
+              throw "Expected one clean legacy Windows ZIP or app/RoundUp.exe. Found $($legacyArchives.Count). No release published."
             }
             $legacyDir = Join-Path $env:RUNNER_TEMP "roundup-legacy"
-            Expand-Archive -Path $legacyArchive -DestinationPath $legacyDir -Force
+            Expand-Archive -Path $legacyArchives[0].FullName -DestinationPath $legacyDir -Force
             $candidates = @(Get-ChildItem $legacyDir -File -Recurse -Filter "*.exe" |
               Where-Object { $_.Name -match "^GeoZamir.*[.]exe$" -and $_.Name -notmatch "Launcher" })
             if ($candidates.Count -ne 1) {
