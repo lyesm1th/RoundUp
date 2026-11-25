@@ -39,6 +39,16 @@ internal sealed class LauncherForm : Form
         Font = new Font("Segoe UI", 10f);
         AutoScaleMode = AutoScaleMode.Dpi;
         DoubleBuffered = true;
+        // Use the branded embedded EXE icon instead of WinForms' default window icon.
+        try
+        {
+            if (Environment.ProcessPath is { } exe)
+                Icon = Icon.ExtractAssociatedIcon(exe) ?? Icon;
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Write("Window icon fallback: " + ex.Message);
+        }
 
         var logo = new Panel { Location = new Point(35, 31), Size = new Size(79, 79), BackColor = Background };
         logo.Paint += PaintRoundUpLogo;
@@ -255,7 +265,7 @@ internal sealed class LauncherForm : Form
                 : "Збірку поки не знайдено";
             statusDetail.Text = ReleaseUpdater.InstalledVersion is not null
                 ? "Не вдалося перевірити GitHub. Запускайте встановлену програму."
-                : "Публічний реліз RoundUp поки недоступний. Спробуйте пізніше.";
+                : "Поки доступний лише лаунчер. Повний інтерпретатор ще не опублікований.";
             availableVersion.Text = "Недоступна";
             primary.Text = ReleaseUpdater.InstalledVersion is not null
                 ? "Запустити RoundUp" : "Збірка недоступна";
