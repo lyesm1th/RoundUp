@@ -165,6 +165,7 @@
     state.project=id;
     state.mode="";
     state.draft=[];
+    state.dirty=false;
     try {
       const response=await fetch("/roundup/coverage?project="+encodeURIComponent(id),{cache:"no-store"});
       if(!response.ok)throw new Error("HTTP "+response.status);
@@ -185,7 +186,7 @@
     saveTimer=setTimeout(async()=>{
       try{
         const r=await fetch("/roundup/coverage?project="+encodeURIComponent(savedProject),{
-          method:"PUT",headers:{"Content-Type":"application/json"},
+          method:"PUT",headers:{"Content-Type":"application/json","X-RoundUp-Local":"1"},
           body:JSON.stringify(payload)
         });
         if(!r.ok)throw Error("HTTP "+r.status);
