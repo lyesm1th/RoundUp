@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="190" viewBox="0 0 820 190" role="img" aria-labelledby="title desc">
+  <title id="title">RoundUp</title>
+  <desc id="desc">Бірюзова геомітка й назва застосунку RoundUp.</desc>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3b9c7d"/>
+      <stop offset="1" stop-color="#10514e"/>
+    </linearGradient>
+  </defs>
+  <rect x="12" y="16" width="156" height="156" rx="39" fill="url(#tile)"/>
+  <path d="M90 42c-27 0-48 21-48 48 0 35 48 69 48 69s48-34 48-69c0-27-21-48-48-48z" fill="#86f7c5"/>
+  <circle cx="90" cy="90" r="24" fill="#124342"/>
+  <circle cx="87" cy="86" r="12" fill="#defced"/>
+  <text x="208" y="103" font-family="Segoe UI,Inter,Arial,sans-serif" font-size="83" font-weight="750" letter-spacing="-2" fill="#173947">RoundUp</text>
+  <text x="213" y="145" font-family="Segoe UI,Inter,Arial,sans-serif" font-size="25" font-weight="450" fill="#50727b">Карта об'їздів та контроль територій</text>
+</svg>
