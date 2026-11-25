@@ -25,7 +25,6 @@ internal static class Program
             LauncherLog.Write("RoundUp launcher process started");
             // Never silently exit or relaunch before showing the window.
             // Installation problems must not prevent opening the launcher.
-            AppBootstrap.PrepareInstalledCopy();
             Application.Run(new LauncherForm());
         }
         catch (Exception ex)
