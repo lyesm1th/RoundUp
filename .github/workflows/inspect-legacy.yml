@@ -50,8 +50,22 @@ jobs:
                 Write-Host "Candidate HTTP: $uri status $($response.StatusCode) bytes $($response.RawContentLength)"
                 if ($response.Content.Length -gt 1000 -and $response.Content -match '(?i)<html|<!doctype') {
                   $output = 'legacy/extracted_runtime/index.html'
-                  [System.IO.File]::WriteAllText((Join-Path (Get-Location) $output), $response.Content, [System.Text.Encoding]::UTF8)
+                  $safeHtml = $response.Content -replace 'window.GEOZAMIR_TOKEN="[^"]+"', 'window.GEOZAMIR_TOKEN="__RUNTIME_TOKEN__"'
+                  [System.IO.File]::WriteAllText((Join-Path (Get-Location) $output), $safeHtml, [System.Text.Encoding]::UTF8)
                   Write-Host "Recovered original UI HTML: $($response.Content.Length) characters"
+                  foreach ($asset in @('app.js','style.css','favicon.svg','vendor/jszip.min.js')) {
+                    try {
+                      $assetResponse = Invoke-WebRequest -Uri "$uri$asset" -TimeoutSec 8 -UseBasicParsing
+                      if ($assetResponse.StatusCode -ne 200 -or $assetResponse.Content.Length -lt 20) { continue }
+                      $localAsset = Join-Path (Get-Location) "legacy/extracted_runtime/$asset"
+                      $parent = Split-Path -Path $localAsset -Parent
+                      New-Item -ItemType Directory -Path $parent -Force | Out-Null
+                      [System.IO.File]::WriteAllText($localAsset, $assetResponse.Content, [System.Text.Encoding]::UTF8)
+                      Write-Host "Recovered web asset $asset ($($assetResponse.Content.Length) chars)"
+                    } catch {
+                      Write-Host "Could not fetch web asset $asset"
+                    }
+                  }
                   break
                 }
               } catch {
@@ -77,7 +91,7 @@ jobs:
           if (!(Test-Path 'legacy/extracted_runtime/index.html')) { exit 0 }
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add legacy/extracted_runtime/index.html
+          git add legacy/extracted_runtime/
           git commit -m 'Recover GeoZamir frontend HTML for RoundUp UI migration'
           if ($LASTEXITCODE -ne 0) { exit 0 }
           git push origin HEAD:main
