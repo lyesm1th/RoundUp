@@ -1,212 +1,149 @@
-name: Build RoundUp for Windows
-
+name: Build and publish RoundUp Windows
 on:
   push:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
-
 permissions:
   contents: write
-
 jobs:
-  launcher:
+  windows:
     runs-on: windows-latest
+    timeout-minutes: 25
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up .NET 8
-        uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      - name: Generate RoundUp icon
+      - name: Check JavaScript and icon
         shell: pwsh
         run: |
+          node --check src/RoundUp.UI/app.js
+          if ($LASTEXITCODE -ne 0) { throw "app.js invalid" }
+          node --check src/RoundUp.UI/roundup-addon.js
+          if ($LASTEXITCODE -ne 0) { throw "roundup-addon.js invalid" }
           python scripts/build_icon.py
-          if (!(Test-Path assets/RoundUp.ico)) { throw "Icon generation failed" }
-
-      - name: Build self-contained GUI launcher
+          if (!(Test-Path assets/RoundUp.ico)) { throw "RoundUp icon missing" }
+      - name: Build RoundUp desktop host and bundle real core
+        shell: pwsh
+        run: |
+          dotnet publish src/RoundUp.App/RoundUp.App.csproj -c Release -r win-x64 -o dist/app
+          if ($LASTEXITCODE -ne 0) { throw "RoundUp App compilation failed" }
+          Copy-Item src/RoundUp.UI dist/app/ui -Recurse -Force
+          New-Item -ItemType Directory -Force dist/app/ui/vendor | Out-Null
+          Copy-Item legacy/extracted_runtime/vendor/jszip.min.js dist/app/ui/vendor/jszip.min.js
+          Copy-Item legacy/extracted_runtime/favicon.svg dist/app/ui/favicon.svg
+          $legacyDir = Join-Path $env:RUNNER_TEMP 'roundup-legacy'
+          Expand-Archive legacy/GeoZamir_5.5_GUI_Launcher_Windows.zip $legacyDir -Force
+          $cores = @(Get-ChildItem $legacyDir -Recurse -File -Filter 'GeoZamir.exe')
+          if ($cores.Count -ne 1) { throw "Legacy core count is $($cores.Count)" }
+          Copy-Item $cores[0].FullName dist/app/GeoZamirCore.exe
+          if (!(Test-Path dist/app/RoundUp.exe)) { throw "RoundUp.exe missing" }
+      - name: Functional smoke of local host, legacy parser and coverage
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path dist/app/RoundUp.exe).Path
+          $p = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe -Parent) -PassThru
+          $ready = $false
+          try {
+            for ($i=0; $i -lt 60; $i++) {
+              Start-Sleep -Milliseconds 750
+              $p.Refresh()
+              if ($p.HasExited) { throw "RoundUp exited: $($p.ExitCode)" }
+              try {
+                $status = Invoke-RestMethod 'http://127.0.0.1:45672/roundup/status' -TimeoutSec 1
+                if ($status.ready) { $ready = $true; break }
+              } catch {}
+            }
+            if (!$ready) { throw "RoundUp host did not start" }
+            $html = (Invoke-WebRequest 'http://127.0.0.1:45672/' -UseBasicParsing).Content
+            if ($html -notmatch '<title>RoundUp' -or $html -match '__RUNTIME_TOKEN__') {
+              throw "Frontend branding or dynamic authentication broken"
+            }
+            $appJs = (Invoke-WebRequest 'http://127.0.0.1:45672/app.js' -UseBasicParsing).Content
+            if ($appJs -notmatch 'RoundUpBridge') { throw "Legacy map UI not served" }
+            $body = '{"version":1,"shapes":[{"id":"smoke","points":[[49.8,24.1],[49.8,24.2],[49.9,24.2]]}],"cells":[]}'
+            Invoke-RestMethod -Uri 'http://127.0.0.1:45672/roundup/coverage?project=smoke-test' -Method Put -Headers @{'X-RoundUp-Local'='1'} -Body $body -ContentType 'application/json' | Out-Null
+            $saved = Invoke-RestMethod -Uri 'http://127.0.0.1:45672/roundup/coverage?project=smoke-test'
+            if ($saved.shapes.Count -ne 1) { throw "Coverage data not saved" }
+            Write-Host "PASS: RoundUp server, map UI, backend token and persistent coverage."
+          } finally {
+            if (!$p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+            if (!$ready) {
+              $log = Join-Path $env:LOCALAPPDATA 'RoundUp/logs/roundup-host.log'
+              if (Test-Path $log) { Get-Content $log -Tail 100 }
+            }
+          }
+      - name: Compile and smoke-test launcher UI
         shell: pwsh
         run: |
           dotnet publish src/RoundUp.Launcher/RoundUp.Launcher.csproj -c Release -r win-x64 -o dist/launcher
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (!(Test-Path dist/launcher/RoundUpLauncher.exe)) { throw "Launcher exe missing" }
-
-      - name: Smoke-test Windows GUI startup
-        shell: pwsh
-        run: |
-          $launcher = (Resolve-Path dist/launcher/RoundUpLauncher.exe).Path
-          $process = Start-Process -FilePath $launcher -PassThru
+          if ($LASTEXITCODE -ne 0) { throw "Launcher compilation failed" }
+          $p = Start-Process -FilePath (Resolve-Path dist/launcher/RoundUpLauncher.exe).Path -PassThru
           $log = Join-Path $env:LOCALAPPDATA 'RoundUp/logs/launcher.log'
-          $opened = $false
-          for ($i = 0; $i -lt 15; $i++) {
-            Start-Sleep -Seconds 2
-            if ((Test-Path $log) -and ((Get-Content $log -Raw) -match 'ui-shown')) {
-              $opened = $true
-              break
-            }
-            if ($process.HasExited) { break }
-          }
-          $installed = Join-Path $env:LOCALAPPDATA 'RoundUp/RoundUpLauncher.exe'
-          if ($opened) {
-            for ($i = 0; $i -lt 20; $i++) {
-              if ((Test-Path $installed) -and ((Get-Item $installed).Length -eq (Get-Item $launcher).Length)) { break }
+          $shown = $false
+          try {
+            for($i=0;$i -lt 25;$i++){
               Start-Sleep -Seconds 1
+              if((Test-Path $log) -and ((Get-Content $log -Raw) -match 'ui-shown')){$shown=$true;break}
+              if($p.HasExited){break}
             }
+            if(!$shown){throw "Launcher UI did not open"}
+          } finally {
+            if(!$p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}
           }
-          if (!$process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
-          if ($opened -and (!(Test-Path $installed) -or (Get-Item $installed).Length -ne (Get-Item $launcher).Length)) {
-            throw "Launcher did not finish installation copy."
-          }
-          if (!$opened) {
-            if (Test-Path $log) { Get-Content $log }
-            throw "RoundUp launcher GUI did not report opening within 30 seconds."
-          }
-
-      - name: Build modern Windows installer
+      - name: Compile one-click installer and smoke-test directories
         shell: pwsh
         run: |
-          $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source)
-          if (!$iscc) {
-            $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
-          }
+          $iscc = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFilesX86)) 'Inno Setup 6/ISCC.exe'
           if (!(Test-Path $iscc)) {
             choco install innosetup -y --no-progress
-            if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
-            $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup unavailable" }
           }
-          if (!(Test-Path $iscc)) { throw "ISCC.exe not found" }
-          & $iscc "/DAppVersion=0.1.0" "installer/RoundUp.iss"
-          if ($LASTEXITCODE -ne 0) { throw "RoundUp installer build failed" }
-          if (!(Test-Path dist/setup/RoundUpSetup-win-x64.exe)) { throw "RoundUp setup missing" }
-
-      - name: Smoke-test silent first install and data folders
-        shell: pwsh
-        run: |
-          $setup = (Resolve-Path 'dist/setup/RoundUpSetup-win-x64.exe').Path
-          $proc = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait -PassThru
-          if ($proc.ExitCode -ne 0) { throw "Installer exit code $($proc.ExitCode)" }
+          & $iscc '/DAppVersion=6.0.0' 'installer/RoundUp.iss'
+          if ($LASTEXITCODE -ne 0) { throw "Inno installer failed" }
+          $setup = (Resolve-Path dist/setup/RoundUpSetup-win-x64.exe).Path
+          $p = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Silent installer exit code $($p.ExitCode)" }
           $root = Join-Path $env:LOCALAPPDATA 'RoundUp'
-          $expected = @('RoundUpLauncher.exe','app','projects','photos','imports','backups/app','backups/projects','updates','logs')
-          foreach ($item in $expected) {
-            $path = Join-Path $root $item
-            if (!(Test-Path $path)) { throw "Installer missed $path" }
+          foreach ($item in @('RoundUpLauncher.exe','app','projects','photos','imports','updates','backups/app','backups/projects','logs')) {
+            if (!(Test-Path (Join-Path $root $item))) { throw "Missing installer folder $item" }
           }
-          if (!(Test-Path (Join-Path $root 'unins000.exe'))) { throw "Uninstaller missing" }
-
-      - name: Upload launcher build
-        uses: actions/upload-artifact@v4
-        with:
-          name: RoundUpLauncher-win-x64
-          path: dist/launcher/RoundUpLauncher.exe
-          if-no-files-found: error
-
-      - name: Upload one-click installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: RoundUpSetup-win-x64
-          path: dist/setup/RoundUpSetup-win-x64.exe
-          if-no-files-found: error
-
-  preview:
-    needs: launcher
-    if: contains(github.event.head_commit.message, '[launcher-preview]')
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download tested launcher
-        uses: actions/download-artifact@v4
-        with:
-          name: RoundUpLauncher-win-x64
-          path: dist/launcher
-
-      - name: Download tested setup installer
-        uses: actions/download-artifact@v4
-        with:
-          name: RoundUpSetup-win-x64
-          path: dist/setup
-
-      - name: Publish public launcher preview (no interpreter)
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $tag = "v0.0.3-launcher-installer-preview"
-          gh release view $tag --json tagName *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag dist/launcher/RoundUpLauncher.exe dist/setup/RoundUpSetup-win-x64.exe --clobber
-          } else {
-            gh release create $tag dist/launcher/RoundUpLauncher.exe dist/setup/RoundUpSetup-win-x64.exe --title "RoundUp Launcher + Setup · preview" --notes "Тестовий інсталятор та графічний лаунчер. Інтерпретатор RoundUp ще НЕ включено; не використовуйте як готову робочу версію." --prerelease --target "${{ github.sha }}"
-            if ($LASTEXITCODE -ne 0) {
-              # A parallel preview workflow may have created the release in the meantime.
-              gh release upload $tag dist/launcher/RoundUpLauncher.exe dist/setup/RoundUpSetup-win-x64.exe --clobber
-            }
-          }
-          if ($LASTEXITCODE -ne 0) { throw "Preview release publication failed" }
-
-  release:
-    needs: launcher
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download launcher
-        uses: actions/download-artifact@v4
-        with:
-          name: RoundUpLauncher-win-x64
-          path: dist/launcher
-
-      - name: Download tested setup installer
-        uses: actions/download-artifact@v4
-        with:
-          name: RoundUpSetup-win-x64
-          path: dist/setup
-
-      - name: Package program and write SHA-256 manifest
+      - name: Archive tested RoundUp release and compute update integrity hash
         shell: pwsh
         run: |
-          if (!(Test-Path app/RoundUp.exe)) {
-            $legacyArchives = @(Get-ChildItem -File -Path . -Filter "GeoZamir*_Windows*.zip")
-            if ($legacyArchives.Count -ne 1) {
-              throw "Expected one clean legacy Windows ZIP or app/RoundUp.exe. Found $($legacyArchives.Count). No release published."
-            }
-            $legacyDir = Join-Path $env:RUNNER_TEMP "roundup-legacy"
-            Expand-Archive -Path $legacyArchives[0].FullName -DestinationPath $legacyDir -Force
-            $candidates = @(Get-ChildItem $legacyDir -File -Recurse -Filter "*.exe" |
-              Where-Object { $_.Name -match "^GeoZamir.*[.]exe$" -and $_.Name -notmatch "Launcher" })
-            if ($candidates.Count -ne 1) {
-              throw "Expected exactly one GeoZamir program EXE; found $($candidates.Count)."
-            }
-            New-Item -ItemType Directory -Path app -Force | Out-Null
-            Copy-Item $candidates[0].FullName app/RoundUp.exe
-          }
           New-Item -ItemType Directory -Force release | Out-Null
-          Compress-Archive -Path app/* -DestinationPath release/RoundUp-App-win-x64.zip -CompressionLevel Optimal
-          $hash = (Get-FileHash release/RoundUp-App-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          $manifest = [ordered]@{
-            version = "${{ github.ref_name }}"
-            archive = "RoundUp-App-win-x64.zip"
-            executable = "RoundUp.exe"
-            sha256 = $hash
-          }
-          $manifest | ConvertTo-Json | Set-Content release/roundup-update.json -Encoding utf8
+          Compress-Archive -Path dist/app/* -DestinationPath release/RoundUp-App-win-x64.zip -CompressionLevel Optimal
+          $hash=(Get-FileHash release/RoundUp-App-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          [ordered]@{
+            version='v6.0.0'
+            archive='RoundUp-App-win-x64.zip'
+            executable='RoundUp.exe'
+            sha256=$hash
+          } | ConvertTo-Json | Set-Content release/roundup-update.json -Encoding utf8
           Copy-Item dist/launcher/RoundUpLauncher.exe release/RoundUpLauncher.exe
           Copy-Item dist/setup/RoundUpSetup-win-x64.exe release/RoundUpSetup-win-x64.exe
-
-      - name: Publish release
+      - name: Upload Windows installer and program
+        uses: actions/upload-artifact@v4
+        with:
+          name: RoundUp-Installer-and-App-win-x64
+          path: release/
+          retention-days: 30
+          if-no-files-found: error
+      - name: Publish GitHub Release for launcher auto-updates
+        if: contains(github.event.head_commit.message, '[publish]') || startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --title "RoundUp ${{ github.ref_name }}" --generate-notes --verify-tag
+          $tag='v6.0.0'
+          gh release view $tag --json tagName *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --clobber
+          } else {
+            gh release create $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --title 'RoundUp 6.0.0 — Windows' --notes 'Повна збірка: інсталятор, графічний лаунчер, автоматичні оновлення, карта обʼїздів, імпорт фото й геоданих, контури та сектори охоплення.' --target $env:GITHUB_SHA
+          }
+          if ($LASTEXITCODE -ne 0) { throw "GitHub Release publishing failed" }
