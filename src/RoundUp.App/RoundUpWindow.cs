@@ -325,7 +325,7 @@ internal sealed class RoundUpWindow : Form
 
     private void OpenExternalLink(Uri uri)
     {
-        if (uri.Scheme is not (Uri.UriSchemeHttps or Uri.UriSchemeHttp)) return;
+        if (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp) return;
         try { Process.Start(new ProcessStartInfo { FileName = uri.ToString(), UseShellExecute = true }); }
         catch (Exception error) { _log("Open external link error: " + error.Message); }
     }
