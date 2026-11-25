@@ -21,12 +21,44 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generate RoundUp icon
+        shell: pwsh
+        run: |
+          python scripts/build_icon.py
+          if (!(Test-Path assets/RoundUp.ico)) { throw "Icon generation failed" }
+
       - name: Build self-contained GUI launcher
         shell: pwsh
         run: |
           dotnet publish src/RoundUp.Launcher/RoundUp.Launcher.csproj -c Release -r win-x64 -o dist/launcher
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (!(Test-Path dist/launcher/RoundUpLauncher.exe)) { throw "Launcher exe missing" }
+
+      - name: Smoke-test Windows GUI startup
+        shell: pwsh
+        run: |
+          $launcher = (Resolve-Path dist/launcher/RoundUpLauncher.exe).Path
+          $process = Start-Process -FilePath $launcher -PassThru
+          $log = Join-Path $env:LOCALAPPDATA 'RoundUp/logs/launcher.log'
+          $opened = $false
+          for ($i = 0; $i -lt 15; $i++) {
+            Start-Sleep -Seconds 2
+            if ((Test-Path $log) -and ((Get-Content $log -Raw) -match 'ui-shown')) {
+              $opened = $true
+              break
+            }
+            if ($process.HasExited) { break }
+          }
+          if (!$process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+          if (!$opened) {
+            if (Test-Path $log) { Get-Content $log }
+            throw "RoundUp launcher GUI did not report opening within 30 seconds."
+          }
 
       - name: Upload launcher build
         uses: actions/upload-artifact@v4
