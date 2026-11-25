@@ -66,6 +66,8 @@ jobs:
             }
             $appJs = (Invoke-WebRequest 'http://127.0.0.1:45672/app.js' -UseBasicParsing).Content
             if ($appJs -notmatch 'RoundUpBridge') { throw "Legacy map UI not served" }
+            $legacy = @(Get-Process chrome -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -match 'GeoZamir|ГеоЗамір' })
+            Write-Host "Legacy browser windows still visible: $($legacy.Count)" 
             $body = '{"version":1,"shapes":[{"id":"smoke","points":[[49.8,24.1],[49.8,24.2],[49.9,24.2]]}],"cells":[]}'
             Invoke-RestMethod -Uri 'http://127.0.0.1:45672/roundup/coverage?project=smoke-test' -Method Put -Headers @{'X-RoundUp-Local'='1'} -Body $body -ContentType 'application/json' | Out-Null
             $saved = Invoke-RestMethod -Uri 'http://127.0.0.1:45672/roundup/coverage?project=smoke-test'
@@ -77,6 +79,40 @@ jobs:
               $log = Join-Path $env:LOCALAPPDATA 'RoundUp/logs/roundup-host.log'
               if (Test-Path $log) { Get-Content $log -Tail 100 }
             }
+          }
+      - name: Verify frontend stays open and branded when backend fails
+        shell: pwsh
+        run: |
+          $bundle = (Resolve-Path dist/app/GeoZamirCore.exe).Path
+          $disabled = "$bundle.startup-test-disabled"
+          Move-Item $bundle $disabled
+          $exe = (Resolve-Path dist/app/RoundUp.exe).Path
+          $p = $null
+          try {
+            $p = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe -Parent) -PassThru
+            $ok = $false
+            for ($i=0; $i -lt 24; $i++) {
+              Start-Sleep -Milliseconds 400
+              $p.Refresh()
+              if ($p.HasExited) { throw "RoundUp closed on backend failure, exit $($p.ExitCode)" }
+              try {
+                $status = Invoke-RestMethod 'http://127.0.0.1:45672/roundup/status' -TimeoutSec 1
+                $page = (Invoke-WebRequest 'http://127.0.0.1:45672/' -UseBasicParsing -TimeoutSec 1).Content
+                if (!$status.ready -and $page -match 'Готуємо вашу карту') {
+                  $ok = $true
+                  break
+                }
+              } catch {}
+            }
+            if (!$ok) { throw "RoundUp failed to display its own loading screen without legacy core" }
+            Start-Sleep -Seconds 2
+            $p.Refresh()
+            if ($p.HasExited) { throw "RoundUp crashed after showing loading screen" }
+            Write-Host "PASS: missing legacy backend cannot close RoundUp or show a fatal popup"
+          }
+          finally {
+            if ($p -and !$p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+            Move-Item $disabled $bundle -Force
           }
       - name: Compile and smoke-test launcher UI
         shell: pwsh
@@ -104,7 +140,7 @@ jobs:
             choco install innosetup -y --no-progress
             if ($LASTEXITCODE -ne 0) { throw "Inno Setup unavailable" }
           }
-          & $iscc '/DAppVersion=6.0.0' 'installer/RoundUp.iss'
+          & $iscc '/DAppVersion=6.0.1' 'installer/RoundUp.iss'
           if ($LASTEXITCODE -ne 0) { throw "Inno installer failed" }
           $setup = (Resolve-Path dist/setup/RoundUpSetup-win-x64.exe).Path
           $p = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait -PassThru
@@ -120,7 +156,7 @@ jobs:
           Compress-Archive -Path dist/app/* -DestinationPath release/RoundUp-App-win-x64.zip -CompressionLevel Optimal
           $hash=(Get-FileHash release/RoundUp-App-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
           [ordered]@{
-            version='v6.0.0'
+            version='v6.0.1'
             archive='RoundUp-App-win-x64.zip'
             executable='RoundUp.exe'
             sha256=$hash
@@ -140,11 +176,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag='v6.0.0'
+          $tag='v6.0.1'
           gh release view $tag --json tagName *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --clobber
           } else {
-            gh release create $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --title 'RoundUp 6.0.0 — Windows' --notes 'Повна збірка: інсталятор, графічний лаунчер, автоматичні оновлення, карта обʼїздів, імпорт фото й геоданих, контури та сектори охоплення.' --target $env:GITHUB_SHA
+            gh release create $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --title 'RoundUp 6.0.1 — Windows' --notes 'Повна збірка: інсталятор, графічний лаунчер, автоматичні оновлення, карта обʼїздів, імпорт фото й геоданих, контури та сектори охоплення.' --target $env:GITHUB_SHA
           }
           if ($LASTEXITCODE -ne 0) { throw "GitHub Release publishing failed" }
