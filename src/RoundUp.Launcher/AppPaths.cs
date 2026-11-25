@@ -32,7 +32,7 @@ internal static class AppPaths
 
 internal static class AppBootstrap
 {
-    internal static void PrepareInstalledCopy()
+    internal static async System.Threading.Tasks.Task PrepareInstalledCopyAsync()
     {
         var current = Environment.ProcessPath;
         if (string.IsNullOrWhiteSpace(current) ||
@@ -44,9 +44,11 @@ internal static class AppBootstrap
             if (!Path.GetFullPath(current).Equals(
                     Path.GetFullPath(AppPaths.LauncherExe), StringComparison.OrdinalIgnoreCase))
             {
-                // Prepare an installed copy and a shortcut, but keep the current GUI alive.
-                File.Copy(current, AppPaths.LauncherExe, overwrite: true);
+                // A 100+ MB self-contained exe must never delay the first window.
+                await System.Threading.Tasks.Task.Run(() =>
+                    File.Copy(current, AppPaths.LauncherExe, overwrite: true));
             }
+            // Continuation runs on the WinForms UI thread (STA), as required by WScript.Shell.
             CreateDesktopShortcut();
             LauncherLog.Write("Installed launcher prepared: " + AppPaths.LauncherExe);
         }
