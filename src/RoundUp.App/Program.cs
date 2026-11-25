@@ -79,7 +79,7 @@ internal static class Program
             var app = builder.Build();
 
             app.MapGet("/roundup/status", () =>
-                Results.Json(new { name = "RoundUp", ready = coreUri is not null, error = startupError, version = "6.1.0" }));
+                Results.Json(new { name = "RoundUp", ready = coreUri is not null, error = startupError, version = "6.1.1" }));
             app.MapGet("/roundup/coverage", (HttpContext ctx) =>
             {
                 var path = CoveragePath(ctx.Request.Query["project"].ToString());

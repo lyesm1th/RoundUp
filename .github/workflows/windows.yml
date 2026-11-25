@@ -28,6 +28,7 @@ jobs:
           node scripts/test_roundup_parser.cjs
           if ($LASTEXITCODE -ne 0) { throw "Import GPS and comments regression" }
           if (Select-String -Path src/RoundUp.App/Program.cs -Pattern 'OpenBrowser\(') { throw "Main RoundUp must never launch Chrome" }
+          if (Select-String -Path src/RoundUp.App/RoundUpWindow.cs -Pattern 'ToolStripButton|new ToolStrip|Controls.Add\(toolbar\)') { throw "RoundUp must not overlay a second header on the web UI" }
           python scripts/build_icon.py
           if (!(Test-Path assets/RoundUp.ico)) { throw "RoundUp icon missing" }
       - name: Build RoundUp desktop host and bundle real core
@@ -163,7 +164,7 @@ jobs:
             choco install innosetup -y --no-progress
             if ($LASTEXITCODE -ne 0) { throw "Inno Setup unavailable" }
           }
-          & $iscc '/DAppVersion=6.1.0' 'installer/RoundUp.iss'
+          & $iscc '/DAppVersion=6.1.1' 'installer/RoundUp.iss'
           if ($LASTEXITCODE -ne 0) { throw "Inno installer failed" }
           $setup = (Resolve-Path dist/setup/RoundUpSetup-win-x64.exe).Path
           $p = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait -PassThru
@@ -179,7 +180,7 @@ jobs:
           Compress-Archive -Path dist/app/* -DestinationPath release/RoundUp-App-win-x64.zip -CompressionLevel Optimal
           $hash=(Get-FileHash release/RoundUp-App-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
           [ordered]@{
-            version='v6.1.0'
+            version='v6.1.1'
             archive='RoundUp-App-win-x64.zip'
             executable='RoundUp.exe'
             sha256=$hash
@@ -199,11 +200,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag='v6.1.0'
+          $tag='v6.1.1'
           gh release view $tag --json tagName *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --clobber
           } else {
-            gh release create $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --title 'RoundUp 6.1.0 — Windows' --notes 'Власне вікно Windows (WinForms + вбудований Microsoft WebView2): RoundUp більше не відкриває Chrome для показу карти. Збережено автооновлення через лаунчер, проєкти, фото, резервні копії та геозони.' --target $env:GITHUB_SHA
+            gh release create $tag release/RoundUp-App-win-x64.zip release/roundup-update.json release/RoundUpLauncher.exe release/RoundUpSetup-win-x64.exe --title 'RoundUp 6.1.1 — Windows' --notes 'Одна шапка RoundUp без дубльованої Windows-панелі, повний екран карти, темний заголовок Windows. Лаунчер, проєкти, фотографії, геозони та бекапи залишилися без змін.' --target $env:GITHUB_SHA
           }
           if ($LASTEXITCODE -ne 0) { throw "GitHub Release publishing failed" }

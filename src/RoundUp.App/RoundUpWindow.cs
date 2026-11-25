@@ -50,30 +50,6 @@ internal sealed class RoundUpWindow : Form
         try { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application; }
         catch { Icon = SystemIcons.Application; }
 
-        var toolbar = new ToolStrip
-        {
-            Dock = DockStyle.Top,
-            GripStyle = ToolStripGripStyle.Hidden,
-            BackColor = Color.FromArgb(19, 45, 51),
-            ForeColor = Color.FromArgb(239, 252, 246),
-            Renderer = new ToolStripProfessionalRenderer(),
-            Padding = new Padding(12, 5, 12, 5),
-            AutoSize = true
-        };
-        var brand = new ToolStripLabel("◉  RoundUp")
-        {
-            Font = new Font("Segoe UI", 11, FontStyle.Bold),
-            ForeColor = Color.FromArgb(137, 236, 183),
-            Margin = new Padding(0, 0, 24, 0)
-        };
-        var homeButton = MakeButton("⌂  Карта", () => _browser.CoreWebView2?.Navigate(_host.ToString()));
-        var refreshButton = MakeButton("⟳  Оновити", () => _browser.CoreWebView2?.Reload());
-        var folderButton = MakeButton("▣  Мої проєкти", OpenProjectsDirectory);
-        toolbar.Items.Add(brand);
-        toolbar.Items.Add(homeButton);
-        toolbar.Items.Add(refreshButton);
-        toolbar.Items.Add(folderButton);
-
         _status = new Label
         {
             Dock = DockStyle.Fill,
@@ -92,7 +68,6 @@ internal sealed class RoundUpWindow : Form
 
         Controls.Add(_status);
         Controls.Add(_browser);
-        Controls.Add(toolbar);
 
         Shown += (_, _) =>
         {
@@ -106,33 +81,26 @@ internal sealed class RoundUpWindow : Form
         };
     }
 
-    private ToolStripButton MakeButton(string text, Action click)
-    {
-        var item = new ToolStripButton(text)
-        {
-            DisplayStyle = ToolStripItemDisplayStyle.Text,
-            ForeColor = Color.FromArgb(230, 248, 240),
-            Font = new Font("Segoe UI", 9, FontStyle.Regular),
-            AutoSize = true,
-            Margin = new Padding(0, 0, 8, 0),
-            Padding = new Padding(7, 4, 7, 4)
-        };
-        item.Click += (_, _) => click();
-        return item;
-    }
+    // Windows 11 supports custom caption colors. Older Windows simply
+    // keep their system title bar; RoundUp never draws a duplicate header.
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(
+        IntPtr handle, int attribute, ref int value, int size);
 
-    private void OpenProjectsDirectory()
+    protected override void OnHandleCreated(EventArgs e)
     {
+        base.OnHandleCreated(e);
         try
         {
-            Directory.CreateDirectory(_projectsDirectory);
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = _projectsDirectory,
-                UseShellExecute = true
-            });
+            int dark = 1;
+            DwmSetWindowAttribute(Handle, 20, ref dark, sizeof(int));
+            int caption = ColorTranslator.ToWin32(Color.FromArgb(18, 39, 43));
+            DwmSetWindowAttribute(Handle, 35, ref caption, sizeof(int));
+            int titleColor = ColorTranslator.ToWin32(Color.FromArgb(234, 248, 239));
+            DwmSetWindowAttribute(Handle, 36, ref titleColor, sizeof(int));
         }
-        catch (Exception e) { _log("Open projects error: " + e.Message); }
+        catch (DllNotFoundException) { }
+        catch (EntryPointNotFoundException) { }
     }
 
     private async Task InitializeWebViewAsync()
