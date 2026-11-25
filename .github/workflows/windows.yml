@@ -127,7 +127,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "v0.0.3-launcher-installer-preview"
-          gh release create $tag dist/launcher/RoundUpLauncher.exe dist/setup/RoundUpSetup-win-x64.exe --title "RoundUp Launcher + Setup · preview" --notes "Тестовий інсталятор та графічний лаунчер. Інтерпретатор RoundUp ще НЕ включено; не використовуйте як готову робочу версію." --prerelease --target "${{ github.sha }}"
+          gh release view $tag --json tagName *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag dist/launcher/RoundUpLauncher.exe dist/setup/RoundUpSetup-win-x64.exe --clobber
+          } else {
+            gh release create $tag dist/launcher/RoundUpLauncher.exe dist/setup/RoundUpSetup-win-x64.exe --title "RoundUp Launcher + Setup · preview" --notes "Тестовий інсталятор та графічний лаунчер. Інтерпретатор RoundUp ще НЕ включено; не використовуйте як готову робочу версію." --prerelease --target "${{ github.sha }}"
+            if ($LASTEXITCODE -ne 0) {
+              # A parallel preview workflow may have created the release in the meantime.
+              gh release upload $tag dist/launcher/RoundUpLauncher.exe dist/setup/RoundUpSetup-win-x64.exe --clobber
+            }
+          }
           if ($LASTEXITCODE -ne 0) { throw "Preview release publication failed" }
 
   release:
