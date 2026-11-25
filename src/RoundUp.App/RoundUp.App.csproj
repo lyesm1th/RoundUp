@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <AssemblyName>RoundUp</AssemblyName>
+    <Product>RoundUp — карта об'їздів</Product>
+    <AssemblyTitle>RoundUp</AssemblyTitle>
+    <ApplicationIcon>../../assets/RoundUp.ico</ApplicationIcon>
+  </PropertyGroup>
+</Project>
