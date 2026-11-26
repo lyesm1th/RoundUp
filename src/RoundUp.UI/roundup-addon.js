@@ -2,6 +2,7 @@
 (() => {
   "use strict";
   const bridge = window.RoundUpBridge;
+  const profiles = () => window.RoundUpProfiles;
   const canvas = document.getElementById("mapCanvas");
   const overlay = document.getElementById("roundupCoverageOverlay");
   const polygonButton = document.getElementById("coveragePolygonBtn");
@@ -44,13 +45,15 @@
   function render() {
     overlay.setAttribute("viewBox", "0 0 " + Math.max(1,canvas.clientWidth) + " " + Math.max(1,canvas.clientHeight));
     overlay.replaceChildren();
-    for (const cell of state.cells) {
+    const visibleCells = state.cells.filter(c => !profiles() || profiles().allowsCoverage(c.managerId,c.date));
+    const visibleShapes = state.shapes.filter(c => !profiles() || profiles().allowsCoverage(c.managerId,c.date));
+    for (const cell of visibleCells) {
       const a=geoTile(cell.x,cell.y), b=geoTile(cell.x+1,cell.y+1);
       const points=[[a.lat,a.lng],[a.lat,b.lng],[b.lat,b.lng],[b.lat,a.lng]];
-      overlay.appendChild(svgEl("polygon",{points:points.map(vertex).join(" "),class:"roundup-sector"}));
+      overlay.appendChild(svgEl("polygon",{points:points.map(vertex).join(" "),class:"roundup-sector", style:"fill:"+(profiles()?.colorFor(cell.managerId,cell.date)||"#0e9880")+";fill-opacity:.18"}));
     }
-    for (const shape of state.shapes) overlay.appendChild(svgEl("polygon",{
-      points:shape.points.map(vertex).join(" "), class:"roundup-region"
+    for (const shape of visibleShapes) overlay.appendChild(svgEl("polygon",{
+      points:shape.points.map(vertex).join(" "), class:"roundup-region", style:"fill:"+(profiles()?.colorFor(shape.managerId,shape.date)||"#11a185")+";fill-opacity:.19;stroke:"+(profiles()?.colorFor(shape.managerId,shape.date)||"#11a185")
     }));
     if (state.draft.length) {
       overlay.appendChild(svgEl("polyline",{
@@ -61,14 +64,14 @@
         overlay.appendChild(svgEl("circle",{cx:at.x,cy:at.y,r:5,class:"roundup-vertex"}));
       }
     }
-    const cellKm2=state.cells.reduce((sum,c)=>{
+    const cellKm2=visibleCells.reduce((sum,c)=>{
       const a=geoTile(c.x,c.y),b=geoTile(c.x+1,c.y+1);
       return sum+Math.abs((a.lat-b.lat)*(a.lng-b.lng)*111.32*111.32*Math.cos((a.lat+b.lat)*Math.PI/360));
     },0);
-    const km2 = cellKm2+state.shapes.reduce((sum,s)=>sum+polyKm2(s.points),0);
-    summary.textContent = state.shapes.length || state.cells.length
+    const km2 = cellKm2+visibleShapes.reduce((sum,s)=>sum+polyKm2(s.points),0);
+    summary.textContent = visibleShapes.length || visibleCells.length
       ? "Охоплення ≈ " + km2.toLocaleString("uk-UA",{maximumFractionDigits:2}) + " км² · " +
-        state.shapes.length + " ділянок · " + state.cells.length + " секторів"
+        visibleShapes.length + " ділянок · " + visibleCells.length + " секторів"
       : "Охоплення: ще не позначено";
     polygonButton.classList.toggle("coverage-active",state.mode==="polygon");
     gridButton.classList.toggle("coverage-active",state.mode==="sector");
@@ -82,7 +85,7 @@
   let lastView="";
   setInterval(()=>{
     const n=bridge.state;
-    const view=[n.center.lat,n.center.lng,n.zoom,canvas.clientWidth,canvas.clientHeight].join("|");
+    const view=[n.center.lat,n.center.lng,n.zoom,canvas.clientWidth,canvas.clientHeight,profiles()?.activeManager(),profiles()?.activeDay()].join("|");
     if (view!==lastView) {lastView=view;render()}
     if(projectId()!==state.project) void load();
   },180);
@@ -94,6 +97,9 @@
     '<button type="button" id="coverageCancel" title="Вийти з малювання">Готово</button>';
   canvas.parentElement.appendChild(controls);
   function mode(name) {
+    if(!state.mode && profiles() && ["all","unassigned"].includes(profiles().activeManager())) {
+      alert("Спочатку оберіть профіль конкретного менеджера.");return;
+    }
     state.mode = state.mode === name ? "" : name;
     state.draft = [];
     canvas.classList.toggle("roundup-drawing",!!state.mode);
@@ -119,7 +125,7 @@
   };
   const finish=()=>{
     if(state.draft.length>=3){
-      state.shapes.push({id:Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,6),points:state.draft.slice(),created:new Date().toISOString()});
+      state.shapes.push({id:Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,6),points:state.draft.slice(),created:new Date().toISOString(),managerId:profiles()?.activeManager()||"",date:profiles()?.selectedRouteDate()||new Date().toISOString().slice(0,10)});
       save();
     }
     state.draft=[];
@@ -131,9 +137,9 @@
     ev.preventDefault();ev.stopImmediatePropagation();
     if(!point)return;
     if(state.mode==="sector"){
-      const t=tile(point[0],point[1]),k=key(t),i=state.cells.findIndex(c=>key(c)===k);
+      const t=tile(point[0],point[1]),k=key(t),i=state.cells.findIndex(c=>key(c)===k&&c.managerId===profiles()?.activeManager()&&c.date===profiles()?.selectedRouteDate());
       if(i>=0)state.cells.splice(i,1);
-      else state.cells.push(t);
+      else state.cells.push({...t,managerId:profiles()?.activeManager()||"",date:profiles()?.selectedRouteDate()||new Date().toISOString().slice(0,10)});
       save();
     }else if(ev.detail===1)state.draft.push(point);
     render();
