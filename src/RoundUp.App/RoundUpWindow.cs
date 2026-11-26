@@ -325,7 +325,7 @@ internal sealed class RoundUpWindow : Form
             {
                 _log("direct-core-ui-ready: " + title);
                 var profileReady = await _browser.CoreWebView2.ExecuteScriptAsync(
-                    "Boolean(window.RoundUpProfiles && typeof window.RoundUpProfiles.beforeImport === 'function' && typeof window.RoundUpProfiles.allowsRecord === 'function')");
+                    "Boolean(window.RoundUpProfiles && typeof window.RoundUpProfiles.beforeImport === 'function' && typeof window.RoundUpProfiles.allowsRecord === 'function' && typeof window.RoundUpProfiles.isDrawing === 'function' && typeof window.RoundUpCoverage?.isDrawing === 'function' && document.getElementById('routeDrawMapBtn') && document.querySelector('.ru-map-route-controls'))");
                 if (profileReady == "true") _log("roundup-profiles-ready: managers, dates, routes");
                 else _log("RoundUp profile startup error: " + profileReady);
                 var projectsReady = await _browser.CoreWebView2.ExecuteScriptAsync(
