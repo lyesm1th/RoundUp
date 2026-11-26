@@ -1,7 +1,7 @@
 name: Build and publish RoundUp Windows
 on:
   push:
-    branches: [main, 'feature/manager-profiles-routes']
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
 permissions:
@@ -24,9 +24,9 @@ jobs:
           node --check src/RoundUp.UI/app.js
           if ($LASTEXITCODE -ne 0) { throw "app.js invalid" }
           node --check src/RoundUp.UI/roundup-addon.js
+          if ($LASTEXITCODE -ne 0) { throw "roundup-addon.js invalid" }
           node --check src/RoundUp.UI/roundup-profiles.js
           if ($LASTEXITCODE -ne 0) { throw "RoundUp profiles JavaScript invalid" }
-          if ($LASTEXITCODE -ne 0) { throw "roundup-addon.js invalid" }
           node scripts/test_roundup_parser.cjs
           if ($LASTEXITCODE -ne 0) { throw "Import GPS and comments regression" }
           if (Select-String -Path src/RoundUp.App/Program.cs -Pattern 'OpenBrowser\(|ProxyAsync|WebApplication|ConfigureKestrel') { throw "RoundUp must have no browser launcher or HTTP proxy" }
@@ -205,7 +205,7 @@ jobs:
           for ($attempt = 1; $attempt -le 6; $attempt++) {
             gh release view $tag --json tagName *> $null
             if ($LASTEXITCODE -eq 0) { $exists = $true; break }
-            gh release create $tag --draft --title 'RoundUp 6.3.0 — Windows' --notes 'Оригінальний GeoZamir 5.5 без змін. Власне вікно RoundUp, оновлена графіка й прямий імпорт ZIP без проксі.' --target $env:GITHUB_SHA
+            gh release create $tag --draft --title 'RoundUp 6.3.0 — Windows' --notes 'Оригінальний GeoZamir 5.5 без змін. Нативне вікно, профілі менеджерів, фільтри дат, різнокольорові мітки, ручні датовані маршрути й окремий шар покриття. Автоматичне оновлення через лаунчер.' --target $env:GITHUB_SHA
             if ($LASTEXITCODE -eq 0) { $exists = $true; break }
             Start-Sleep -Seconds (5 * $attempt)
           }
