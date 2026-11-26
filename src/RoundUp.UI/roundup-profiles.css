@@ -29,3 +29,20 @@
 .geo-marker:not(.map-cluster) .pin-shape{background-color:var(--roundup-manager-color,#10987d)!important;background-image:none!important;border-color:rgba(255,255,255,.9)!important}
 @media(max-width:750px){.ru-profile-panel{padding:11px}.ru-profile-route-row input[type=date]{flex-basis:100%}.ru-profile-tools{gap:4px}}
 .map-markers{z-index:7}
+
+/* v6.3.1: project names must not collapse behind full-width icon buttons. */
+.project-menu .project-choice-line{display:grid;grid-template-columns:minmax(0,1fr) 34px 34px;align-items:stretch;gap:5px;width:100%}
+.project-menu .project-choice-line .project-choice{min-width:0;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;text-align:left;padding:9px 7px;line-height:1.35}
+.project-menu .project-choice-line .project-choice>span{display:inline-block;min-width:15px;margin-right:6px}
+.project-menu .project-choice-line .project-window,
+.project-menu .project-choice-line .project-delete{box-sizing:border-box;width:34px;min-width:34px;max-width:34px;padding:4px 0;display:grid;place-items:center;font-size:17px;flex:none}
+.project-menu .project-choice-line .project-window{color:#176276;background:#eaf5f3}
+.project-menu .project-choice-line .project-delete{color:#ad414b;background:#fff3f3}
+.project-menu .project-choice-line .project-delete:hover{background:#ffe0e1;color:#8f1726}
+.project-menu .ru-project-trash-entry{margin-top:7px;padding:9px 11px;border-top:1px solid #e0ebe5;color:#56756e;font-size:12px}
+.ru-trash-modal{max-width:470px}
+.ru-trash-modal p{margin:0;line-height:1.5;color:#53716b;font-size:13px}
+.ru-trash-list{display:grid;gap:7px;max-height:40vh;overflow:auto}
+.ru-trash-project-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 11px;background:#f3f8f6;border-radius:9px}
+.ru-trash-project-row strong{font-size:13px;overflow-wrap:anywhere;color:#264743}
+.ru-empty-trash{padding:18px;text-align:center;color:#77918b}

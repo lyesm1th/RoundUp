@@ -175,7 +175,8 @@ internal sealed class RoundUpWindow : Form
             // API and all project/media requests are NEVER intercepted.
             if (route.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)) return;
             if (route.Equals("/roundup/coverage", StringComparison.OrdinalIgnoreCase) ||
-                route.Equals("/roundup/profiles", StringComparison.OrdinalIgnoreCase))
+                route.Equals("/roundup/profiles", StringComparison.OrdinalIgnoreCase) ||
+                route.Equals("/roundup/project-trash", StringComparison.OrdinalIgnoreCase))
             {
                 HandleCoverage(args, uri);
                 return;
@@ -188,6 +189,7 @@ internal sealed class RoundUpWindow : Form
                 "/roundup-theme.css" => "roundup-theme.css",
                 "/roundup-addon.js" => "roundup-addon.js",
                 "/roundup-profiles.js" => "roundup-profiles.js",
+                "/roundup-projects.js" => "roundup-projects.js",
                 "/roundup-profiles.css" => "roundup-profiles.css",
                 "/favicon.svg" => "favicon.svg",
                 "/vendor/jszip.min.js" => Path.Combine("vendor", "jszip.min.js"),
@@ -242,15 +244,18 @@ internal sealed class RoundUpWindow : Form
             }
             var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(project))).ToLowerInvariant();
             var profiles = uri.AbsolutePath.Equals("/roundup/profiles", StringComparison.OrdinalIgnoreCase);
-            var folder = Path.Combine(_projectsDirectory, profiles ? "profiles" : "coverage");
+            var trash = uri.AbsolutePath.Equals("/roundup/project-trash", StringComparison.OrdinalIgnoreCase);
+            var folder = Path.Combine(_projectsDirectory, trash ? "settings" : profiles ? "profiles" : "coverage");
             Directory.CreateDirectory(folder);
-            var path = Path.Combine(folder, hash + ".json");
+            var path = Path.Combine(folder, trash ? "trashed-projects.json" : hash + ".json");
             var method = args.Request.Method.ToUpperInvariant();
             if (method == "GET")
             {
                 var bytes = File.Exists(path)
                     ? File.ReadAllBytes(path)
-                    : Encoding.UTF8.GetBytes(profiles
+                    : Encoding.UTF8.GetBytes(trash
+                        ? "{\"version\":1,\"deleted\":[]}"
+                        : profiles
                         ? "{\"version\":1,\"managers\":[],\"assignments\":{},\"sourceAssignments\":{},\"routes\":[]}"
                         : "{\"version\":1,\"shapes\":[],\"cells\":[]}");
                 args.Response = MakeResponse(bytes, 200, "OK", "application/json; charset=utf-8");
@@ -260,7 +265,7 @@ internal sealed class RoundUpWindow : Form
             {
                 using var memory = new MemoryStream();
                 args.Request.Content?.CopyTo(memory);
-                if (memory.Length > (profiles ? 16_000_000 : 4_000_000))
+                if (memory.Length > (trash ? 200_000 : profiles ? 16_000_000 : 4_000_000))
                 {
                     args.Response = MakeResponse(Encoding.UTF8.GetBytes("{\"error\":\"too large\"}"),
                         413, "Payload Too Large", "application/json");
@@ -268,7 +273,17 @@ internal sealed class RoundUpWindow : Form
                 }
                 using var document = JsonDocument.Parse(memory.ToArray());
                 var root = document.RootElement;
-                if (profiles)
+                if (trash)
+                {
+                    if (!root.TryGetProperty("deleted", out var removed) || removed.ValueKind != JsonValueKind.Array || removed.GetArrayLength() > 1000)
+                        throw new JsonException("Invalid trash payload");
+                    foreach (var entry in removed.EnumerateArray())
+                    {
+                        if (entry.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(entry.GetString()) || entry.GetString()!.Length > 180)
+                            throw new JsonException("Invalid trashed project ID");
+                    }
+                }
+                else if (profiles)
                 {
                     if (!root.TryGetProperty("managers", out var managers) || managers.ValueKind != JsonValueKind.Array ||
                         !root.TryGetProperty("assignments", out var assignments) || assignments.ValueKind != JsonValueKind.Object ||
@@ -313,6 +328,10 @@ internal sealed class RoundUpWindow : Form
                     "Boolean(window.RoundUpProfiles && typeof window.RoundUpProfiles.beforeImport === 'function' && typeof window.RoundUpProfiles.allowsRecord === 'function')");
                 if (profileReady == "true") _log("roundup-profiles-ready: managers, dates, routes");
                 else _log("RoundUp profile startup error: " + profileReady);
+                var projectsReady = await _browser.CoreWebView2.ExecuteScriptAsync(
+                    "Boolean(window.RoundUpProjectTrash && typeof window.RoundUpProjectTrash.deleteProject === 'function')");
+                if (projectsReady == "true") _log("roundup-projects-ready: named projects and recoverable trash");
+                else _log("RoundUp projects startup error: " + projectsReady);
             }
             else
                 _log("Direct core loaded unexpected title: " + title);
