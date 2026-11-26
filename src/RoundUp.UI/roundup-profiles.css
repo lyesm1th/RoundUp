@@ -46,3 +46,15 @@
 .ru-trash-project-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 11px;background:#f3f8f6;border-radius:9px}
 .ru-trash-project-row strong{font-size:13px;overflow-wrap:anywhere;color:#264743}
 .ru-empty-trash{padding:18px;text-align:center;color:#77918b}
+
+/* v6.3.2 — visible route drawing controls on the map, separate from coverage tools. */
+.ru-map-route-controls{position:absolute;left:50%;bottom:96px;transform:translateX(-50%);z-index:13;display:none;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px;width:max-content;max-width:calc(100% - 28px);padding:12px 14px;border-radius:13px;border:1px solid #4e8885;background:#123a40f5;color:#f2fffa;box-shadow:0 14px 38px #06353b60;font:600 12px "Segoe UI",sans-serif}
+.ru-map-route-controls.is-open{display:flex}
+.ru-map-route-controls .ru-route-map-caption{min-width:195px;max-width:290px;line-height:1.35}
+.ru-map-route-controls input[type=date]{background:#fff;color:#193d3b;border:1px solid #cee1d9;border-radius:8px;padding:7px 8px;font:600 12px "Segoe UI",sans-serif;min-height:34px}
+.ru-map-route-controls button{min-height:34px;border-radius:8px;border:1px solid #659a96;background:#2a5960;color:#fff;padding:6px 11px;font:700 12px "Segoe UI",sans-serif;cursor:pointer}
+.ru-map-route-controls button:hover{background:#3b7a72}
+.ru-map-route-controls .ru-route-save{background:#baf2d1;color:#143d37;border-color:#baf2d1}
+.ru-map-route-controls button:disabled{opacity:.5;cursor:not-allowed}
+#routeDrawMapBtn.coverage-active{background:#0e796f;color:#fff;border-color:#0e796f}
+@media(max-width:850px){.ru-map-route-controls{bottom:65px;width:calc(100% - 22px)}.ru-map-route-controls .ru-route-map-caption{width:100%;max-width:none}}

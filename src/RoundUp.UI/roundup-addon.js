@@ -97,8 +97,13 @@
     '<button type="button" id="coverageCancel" title="Вийти з малювання">Готово</button>';
   canvas.parentElement.appendChild(controls);
   function mode(name) {
+    if(name && state.mode!==name && profiles()?.isDrawing?.()) {
+      alert("Спочатку завершіть або скасуйте малювання маршруту.");return;
+    }
     if(!state.mode && profiles() && ["all","unassigned"].includes(profiles().activeManager())) {
-      alert("Спочатку оберіть профіль конкретного менеджера.");return;
+      if(profiles().chooseCoverageManager)profiles().chooseCoverageManager(()=>mode(name));
+      else alert("Спочатку оберіть профіль конкретного менеджера.");
+      return;
     }
     state.mode = state.mode === name ? "" : name;
     state.draft = [];
@@ -109,8 +114,9 @@
   polygonButton.addEventListener("click",()=>mode("polygon"));
   gridButton.addEventListener("click",()=>mode("sector"));
   document.getElementById("coverageCancel").addEventListener("click",()=>{
-    if(state.mode==="polygon"&&state.draft.length>=3) finish();
-    else mode("");
+    if(state.mode==="polygon" && state.draft.length) {
+      if(finish())mode("");
+    } else mode("");
   });
   document.getElementById("coverageUndo").addEventListener("click",()=>{
     if(state.draft.length) state.draft.pop();
@@ -124,36 +130,83 @@
     return Number.isFinite(p.lat)&&Number.isFinite(p.lng)?[p.lat,p.lng]:null;
   };
   const finish=()=>{
-    if(state.draft.length>=3){
-      state.shapes.push({id:Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,6),points:state.draft.slice(),created:new Date().toISOString(),managerId:profiles()?.activeManager()||"",date:profiles()?.selectedRouteDate()||new Date().toISOString().slice(0,10)});
-      save();
+    if(state.draft.length<3){
+      const instruction=document.getElementById("coverageInstructions");
+      if(instruction)instruction.textContent="Щоб зберегти ділянку, позначте мінімум 3 різні точки на карті. Зараз: "+state.draft.length+".";
+      return false;
     }
+    const owner=profiles()?.activeManager()||"";
+    const date=profiles()?.activeDay?.()||profiles()?.selectedRouteDate?.()||new Date().toISOString().slice(0,10);
+    state.shapes.push({id:Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,6),
+      points:state.draft.slice(),created:new Date().toISOString(),managerId:owner,date});
     state.draft=[];
-    render();
+    save();render();
+    return true;
   };
-  canvas.addEventListener("click",ev=>{
-    if(!state.mode)return;
+  const addPoint=ev=>{
     const point=fromPointer(ev);
-    ev.preventDefault();ev.stopImmediatePropagation();
     if(!point)return;
     if(state.mode==="sector"){
-      const t=tile(point[0],point[1]),k=key(t),i=state.cells.findIndex(c=>key(c)===k&&c.managerId===profiles()?.activeManager()&&c.date===profiles()?.selectedRouteDate());
+      const t=tile(point[0],point[1]),k=key(t);
+      const owner=profiles()?.activeManager()||"";
+      const date=profiles()?.activeDay?.()||profiles()?.selectedRouteDate?.()||new Date().toISOString().slice(0,10);
+      const i=state.cells.findIndex(c=>key(c)===k&&c.managerId===owner&&c.date===date);
       if(i>=0)state.cells.splice(i,1);
-      else state.cells.push({...t,managerId:profiles()?.activeManager()||"",date:profiles()?.selectedRouteDate()||new Date().toISOString().slice(0,10)});
+      else state.cells.push({...t,managerId:owner,date});
       save();
-    }else if(ev.detail===1)state.draft.push(point);
+    }else if(state.mode==="polygon"){
+      const last=state.draft[state.draft.length-1];
+      if(!last || Math.abs(last[0]-point[0])+Math.abs(last[1]-point[1])>0.000001)
+        state.draft.push(point);
+    }
     render();
+  };
+  // Drawing uses pointerup, because the original map/markers may swallow click
+  // after pointer capture. Capture pointerdown prevents accidental map dragging.
+  let pointerStart=null;
+  canvas.addEventListener("pointerdown",ev=>{
+    if(!state.mode || ev.button!==0 || ev.isPrimary===false)return;
+    pointerStart={x:ev.clientX,y:ev.clientY,id:ev.pointerId};
+    ev.preventDefault();ev.stopImmediatePropagation();
+  },true);
+  canvas.addEventListener("pointerup",ev=>{
+    if(!state.mode || !pointerStart)return;
+    const start=pointerStart;pointerStart=null;
+    ev.preventDefault();ev.stopImmediatePropagation();
+    if(start.id!==ev.pointerId)return;
+    if(Math.hypot(ev.clientX-start.x,ev.clientY-start.y)>9)return;
+    addPoint(ev);
+  },true);
+  canvas.addEventListener("pointercancel",()=>{pointerStart=null;},true);
+  canvas.addEventListener("click",ev=>{
+    if(!state.mode)return;
+    ev.preventDefault();ev.stopImmediatePropagation();
+    if(ev.detail===0) addPoint(ev); // keyboard and accessibility only
   },true);
   canvas.addEventListener("dblclick",ev=>{
     if(state.mode!=="polygon")return;
     ev.preventDefault();ev.stopImmediatePropagation();
-    finish();
+    if(finish())mode("");
   },true);
   document.addEventListener("keydown",ev=>{
     if(!state.mode)return;
-    if(ev.key==="Escape"){mode("");ev.preventDefault()}
-    if(ev.key==="Enter"&&state.mode==="polygon"){finish();ev.preventDefault()}
+    if(ev.key==="Escape"){mode("");ev.preventDefault();}
+    if(ev.key==="Enter"&&state.mode==="polygon"){
+      if(finish())mode("");
+      ev.preventDefault();
+    }
   });
+  window.RoundUpCoverage={
+    isDrawing:()=>!!state.mode,cancelDrawing:()=>mode(""),
+    availableDates:managerId=>{
+      const result=new Set();
+      for(const mark of [...state.shapes,...state.cells]){
+        if(mark.date && (managerId==="all" || (managerId==="unassigned"?!mark.managerId:mark.managerId===managerId)))
+          result.add(mark.date);
+      }
+      return [...result];
+    }
+  };
   function sanitize(data) {
     const shapes=Array.isArray(data?.shapes)?data.shapes.filter(s=>
       Array.isArray(s.points)&&s.points.length>=3&&s.points.length<=2000&&
@@ -180,12 +233,13 @@
     }catch(ex){
       console.warn("RoundUp coverage: loading local backup",ex.message);
       try{const next=sanitize(JSON.parse(localStorage.getItem("RoundUp:coverage:"+id)||"{}"));state.shapes=next.shapes;state.cells=next.cells;}catch(_){}
-    }finally{state.loading=false;render()}
+    }finally{state.loading=false;render();profiles()?.refreshControls?.()}
   }
   let saveTimer;
   function save() {
     state.dirty=true;
-    localStorage.setItem("RoundUp:coverage:"+state.project,JSON.stringify({shapes:state.shapes,cells:state.cells}));
+    profiles()?.refreshControls?.();
+    try {localStorage.setItem("RoundUp:coverage:"+state.project,JSON.stringify({shapes:state.shapes,cells:state.cells}));}catch(_){/* native disk storage remains authoritative */}
     clearTimeout(saveTimer);
     const savedProject=state.project;
     const payload={version:1,shapes:state.shapes,cells:state.cells};

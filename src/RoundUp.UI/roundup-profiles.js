@@ -138,6 +138,21 @@
   routeRow.append(routeDate,drawButton,finishButton,cancelButton);
   const routeHint=div("ru-route-hint","Виберіть менеджера, дату та намалюйте шлях кліками по карті.");
   const routeList=div("ru-route-list");
+  const mapRouteBtn=$("routeDrawMapBtn");
+  const floating=div("ru-map-route-controls");
+  const floatingHint=div("ru-route-map-caption","Малювання маршруту");
+  const floatingDate=all("input");floatingDate.type="date";floatingDate.value=routeDate.value;
+  floatingDate.setAttribute("aria-label","Дата маршруту");
+  const floatingUndo=button("","↶ Точка назад",()=>{
+    if(drawing&&draft.length){draft.pop();renderPaths();renderControls();}
+  });
+  const floatingFinish=button("ru-route-save","✓ Готово",finishRoute);
+  const floatingCancel=button("","Скасувати",()=>stopDrawing());
+  floating.append(floatingHint,floatingDate,floatingUndo,floatingFinish,floatingCancel);
+  $("mapArea")?.append(floating);
+  mapRouteBtn?.addEventListener("click",toggleDrawing);
+  floatingDate.addEventListener("change",()=>{routeDate.value=floatingDate.value;});
+  routeDate.addEventListener("change",()=>{floatingDate.value=routeDate.value;});
   ui.append(header,managerSelect,daySelect,tools,routeTitle,routeRow,routeHint,routeList);
   const container=$("sidebar"),after=container?.querySelector(".sidebar-head");
   if(container&&after)after.insertAdjacentElement("afterend",ui);
@@ -156,6 +171,7 @@
       const day=visitDate(record);if(day)days.add(day);
     }
     for(const route of data.routes)if(activeManager==="all"||route.managerId===activeManager)days.add(route.date);
+    for(const date of window.RoundUpCoverage?.availableDates?.(activeManager)||[])days.add(date);
     daySelect.replaceChildren(option("","Усі дати",!activeDay));
     for(const d of [...days].sort().reverse())daySelect.append(option(d,d,activeDay===d));
     if(activeDay && !days.has(activeDay)){activeDay="";daySelect.value="";}
@@ -164,6 +180,14 @@
       ? "Клікайте по дорозі. Подвійний клік або «Завершити» збереже маршрут; Esc — скасувати."
       : count+" маршрутів видно · зелений/синій за менеджером, у профілі — колір за датою.";
     drawButton.classList.toggle("is-active",drawing);
+    mapRouteBtn?.classList.toggle("coverage-active",drawing);
+    floating.classList.toggle("is-open",drawing);
+    floatingHint.textContent=drawing
+      ? (data.managers.find(m=>m.id===activeManager)?.name||"Менеджер")+" · "+draft.length+" точок. Клікайте вздовж дороги. Для повороту — нова точка."
+      : "Малювання маршруту";
+    floatingDate.value=routeDate.value;
+    floatingUndo.disabled=!drawing||draft.length===0;
+    floatingFinish.disabled=!drawing||draft.length<2;
     finishButton.disabled=!drawing||draft.length<2;
     cancelButton.disabled=!drawing;
     routeList.replaceChildren();
@@ -303,12 +327,44 @@
         stroke:"#ffffff","stroke-width":"4","stroke-dasharray":"7 5",fill:"none"}));
     }
   }
+  function showRouteSetup(onReady=startDrawing,kind="Новий маршрут"){
+    if(!data.managers.length){
+      alert((kind==="Новий маршрут"?"Для маршруту":"Для позначення території")+" потрібен профіль менеджера. Створіть його у вікні, що відкриється.");
+      void showImportModal([],true).then(result=>{if(result?.managerId)onReady();});
+      return;
+    }
+    const shade=div("ru-profile-modal-backdrop"),panel=div("ru-profile-modal");
+    const title=all("h2");title.textContent=kind;
+    const hint=div("",kind==="Новий маршрут"?"Оберіть менеджера й дату. Потім клікайте по карті вздовж дороги: кожен клік — наступна точка маршруту.":"Оберіть менеджера й дату. Потім позначте на карті контур щонайменше трьома точками (або відмічайте сектори).");
+    const choice=all("select");choice.setAttribute("aria-label","Профіль менеджера");
+    for(const m of data.managers)choice.append(option(m.id,m.name,m.id===activeManager));
+    if(activeManager==="all"||activeManager==="unassigned")choice.value=data.managers[0].id;
+    const day=all("input");day.type="date";day.value=activeDay||routeDate.value||isoToday();
+    const actions=div("ru-modal-actions");
+    const cancel=button("ru-small-btn","Скасувати",()=>shade.remove());
+    const accept=button("ru-primary-btn","Почати малювання",()=>{
+      if(!safeDate(day.value)){alert("Вкажіть дату виїзду.");return;}
+      activeManager=choice.value;activeDay="";routeDate.value=day.value;
+      shade.remove();renderControls();bridge.rebuild?.();onReady();
+    });
+    actions.append(cancel,accept);panel.append(title,hint,choice,day,actions);
+    shade.append(panel);document.body.append(shade);choice.focus();
+    shade.addEventListener("click",ev=>{if(ev.target===shade)shade.remove();});
+  }
+  function startDrawing(){
+    if(window.RoundUpCoverage?.isDrawing?.()){
+      alert("Спочатку завершіть або скасуйте малювання ділянки/секторів.");return;
+    }
+    if(activeManager==="all"||activeManager==="unassigned"){showRouteSetup();return;}
+    drawing=true;draft=[];canvas.classList.add("ru-route-drawing");
+    routeDate.value=activeDay||safeDate(routeDate.value)||isoToday();
+    floatingDate.value=routeDate.value;
+    renderControls();renderPaths();
+  }
   function toggleDrawing(){
     if(drawing){finishRoute();return;}
-    if(activeManager==="all"||activeManager==="unassigned"){
-      alert("Оберіть конкретного менеджера перед малюванням маршруту.");return;
-    }
-    drawing=true;draft=[];canvas.classList.add("ru-route-drawing");renderControls();
+    if(activeManager==="all"||activeManager==="unassigned"){showRouteSetup();return;}
+    startDrawing();
   }
   function stopDrawing(){
     drawing=false;draft=[];canvas.classList.remove("ru-route-drawing");renderControls();renderPaths();
@@ -317,25 +373,47 @@
     if(!drawing)return;
     const date=safeDate(routeDate.value);
     if(!date){alert("Вкажіть дату маршруту.");return;}
-    if(draft.length<2){alert("Щоб створити маршрут, виберіть щонайменше дві точки на карті.");return;}
     const points=draft.filter((p,i)=>i===0||Math.abs(p[0]-draft[i-1][0])+Math.abs(p[1]-draft[i-1][1])>0.000001);
-    if(points.length<2)return;
+    if(points.length<2){alert("Позначте на карті щонайменше дві різні точки маршруту.");return;}
     data.routes.push({id:"r"+Date.now().toString(36)+Math.random().toString(36).slice(2,7),
       managerId:activeManager,date,points,createdAt:new Date().toISOString()});
     persist();stopDrawing();activeDay=date;renderControls();bridge.rebuild?.();
   }
+  const appendPoint=event=>{
+    const rect=canvas.getBoundingClientRect(),point=bridge.toGeo(event.clientX-rect.left,event.clientY-rect.top);
+    if(!Number.isFinite(point.lat)||!Number.isFinite(point.lng)||draft.length>=5000)return;
+    const last=draft[draft.length-1];
+    if(!last||Math.abs(last[0]-point.lat)+Math.abs(last[1]-point.lng)>0.000001){
+      draft.push([point.lat,point.lng]);renderPaths();renderControls();
+    }
+  };
+  let routePointer=null;
+  canvas.addEventListener("pointerdown",event=>{
+    if(!drawing||event.button!==0||event.isPrimary===false)return;
+    routePointer={id:event.pointerId,x:event.clientX,y:event.clientY};
+    event.preventDefault();event.stopImmediatePropagation();
+  },true);
+  canvas.addEventListener("pointerup",event=>{
+    if(!drawing||!routePointer)return;
+    const start=routePointer;routePointer=null;
+    event.preventDefault();event.stopImmediatePropagation();
+    if(start.id!==event.pointerId||Math.hypot(event.clientX-start.x,event.clientY-start.y)>9)return;
+    appendPoint(event);
+  },true);
+  canvas.addEventListener("pointercancel",()=>{routePointer=null;},true);
   canvas.addEventListener("click",event=>{
     if(!drawing)return;
     event.preventDefault();event.stopImmediatePropagation();
-    const rect=canvas.getBoundingClientRect(),point=bridge.toGeo(event.clientX-rect.left,event.clientY-rect.top);
-    if(Number.isFinite(point.lat)&&Number.isFinite(point.lng)&&draft.length<5000)
-      draft.push([point.lat,point.lng]);
-    renderPaths();renderControls();
+    if(event.detail===0)appendPoint(event);
   },true);
   canvas.addEventListener("dblclick",event=>{
-    if(!drawing)return;event.preventDefault();event.stopImmediatePropagation();finishRoute();
+    if(!drawing)return;
+    event.preventDefault();event.stopImmediatePropagation();finishRoute();
   },true);
-  document.addEventListener("keydown",event=>{if(drawing&&event.key==="Escape"){event.preventDefault();stopDrawing();}else if(drawing&&event.key==="Enter"){event.preventDefault();finishRoute();}});
+  document.addEventListener("keydown",event=>{
+    if(drawing&&event.key==="Escape"){event.preventDefault();stopDrawing();}
+    else if(drawing&&event.key==="Enter"){event.preventDefault();finishRoute();}
+  });
   let lastProject="";
   setInterval(()=>{
     const current=getProject();
@@ -350,9 +428,12 @@
   window.RoundUpProfiles={
     beforeImport,afterImport,allowsRecord,markerColor,managerFor,visitDate,
     activeManager:()=>activeManager,activeDay:()=>activeDay,selectedRouteDate:()=>safeDate(routeDate.value)||isoToday(),
-    colorFor:(managerId,date)=>activeManager==="all"?colorFor(managerId):dateColor(date||isoToday()),
-    allowsCoverage:(managerId,date)=> (activeManager==="all"||(activeManager==="unassigned"?!managerId:managerId===activeManager))&&(!activeDay||date===activeDay),
-    listManagers:()=>data.managers.slice()
+    colorFor:(managerId,date)=>!managerId?"#92a6a5":activeManager==="all"?colorFor(managerId):dateColor(date||isoToday()),
+    // Keep legacy zones (without manager) visible in muted grey; never assign them implicitly.
+    allowsCoverage:(managerId,date)=> !managerId || ((activeManager==="all"||managerId===activeManager)&&(!activeDay||!date||date===activeDay)),
+    listManagers:()=>data.managers.slice(),
+    isDrawing:()=>drawing,cancelDrawing:stopDrawing,refreshControls:renderControls,
+    chooseCoverageManager:onReady=>showRouteSetup(onReady,"Позначити територію")
   };
   void openProject();
 })();
