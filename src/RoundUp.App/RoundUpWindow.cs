@@ -174,7 +174,8 @@ internal sealed class RoundUpWindow : Form
             var route = uri.AbsolutePath;
             // API and all project/media requests are NEVER intercepted.
             if (route.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)) return;
-            if (route.Equals("/roundup/coverage", StringComparison.OrdinalIgnoreCase))
+            if (route.Equals("/roundup/coverage", StringComparison.OrdinalIgnoreCase) ||
+                route.Equals("/roundup/profiles", StringComparison.OrdinalIgnoreCase))
             {
                 HandleCoverage(args, uri);
                 return;
@@ -186,6 +187,8 @@ internal sealed class RoundUpWindow : Form
                 "/style.css" => "style.css",
                 "/roundup-theme.css" => "roundup-theme.css",
                 "/roundup-addon.js" => "roundup-addon.js",
+                "/roundup-profiles.js" => "roundup-profiles.js",
+                "/roundup-profiles.css" => "roundup-profiles.css",
                 "/favicon.svg" => "favicon.svg",
                 "/vendor/jszip.min.js" => Path.Combine("vendor", "jszip.min.js"),
                 _ => null
@@ -238,7 +241,8 @@ internal sealed class RoundUpWindow : Form
                 }
             }
             var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(project))).ToLowerInvariant();
-            var folder = Path.Combine(_projectsDirectory, "coverage");
+            var profiles = uri.AbsolutePath.Equals("/roundup/profiles", StringComparison.OrdinalIgnoreCase);
+            var folder = Path.Combine(_projectsDirectory, profiles ? "profiles" : "coverage");
             Directory.CreateDirectory(folder);
             var path = Path.Combine(folder, hash + ".json");
             var method = args.Request.Method.ToUpperInvariant();
@@ -246,7 +250,9 @@ internal sealed class RoundUpWindow : Form
             {
                 var bytes = File.Exists(path)
                     ? File.ReadAllBytes(path)
-                    : Encoding.UTF8.GetBytes("{\"version\":1,\"shapes\":[],\"cells\":[]}");
+                    : Encoding.UTF8.GetBytes(profiles
+                        ? "{\"version\":1,\"managers\":[],\"assignments\":{},\"sourceAssignments\":{},\"routes\":[]}"
+                        : "{\"version\":1,\"shapes\":[],\"cells\":[]}");
                 args.Response = MakeResponse(bytes, 200, "OK", "application/json; charset=utf-8");
                 return;
             }
@@ -254,7 +260,7 @@ internal sealed class RoundUpWindow : Form
             {
                 using var memory = new MemoryStream();
                 args.Request.Content?.CopyTo(memory);
-                if (memory.Length > 4_000_000)
+                if (memory.Length > (profiles ? 16_000_000 : 4_000_000))
                 {
                     args.Response = MakeResponse(Encoding.UTF8.GetBytes("{\"error\":\"too large\"}"),
                         413, "Payload Too Large", "application/json");
@@ -262,7 +268,14 @@ internal sealed class RoundUpWindow : Form
                 }
                 using var document = JsonDocument.Parse(memory.ToArray());
                 var root = document.RootElement;
-                if (!root.TryGetProperty("shapes", out var shapes) ||
+                if (profiles)
+                {
+                    if (!root.TryGetProperty("managers", out var managers) || managers.ValueKind != JsonValueKind.Array ||
+                        !root.TryGetProperty("assignments", out var assignments) || assignments.ValueKind != JsonValueKind.Object ||
+                        !root.TryGetProperty("routes", out var routes) || routes.ValueKind != JsonValueKind.Array)
+                        throw new JsonException("Invalid profiles payload");
+                }
+                else if (!root.TryGetProperty("shapes", out var shapes) ||
                     shapes.ValueKind != JsonValueKind.Array ||
                     !root.TryGetProperty("cells", out var cells) ||
                     cells.ValueKind != JsonValueKind.Array)
@@ -294,7 +307,13 @@ internal sealed class RoundUpWindow : Form
         {
             var title = await _browser.CoreWebView2.ExecuteScriptAsync("document.title");
             if (title.Contains("RoundUp", StringComparison.OrdinalIgnoreCase))
+            {
                 _log("direct-core-ui-ready: " + title);
+                var profileReady = await _browser.CoreWebView2.ExecuteScriptAsync(
+                    "Boolean(window.RoundUpProfiles && typeof window.RoundUpProfiles.beforeImport === 'function' && typeof window.RoundUpProfiles.allowsRecord === 'function')");
+                if (profileReady == "true") _log("roundup-profiles-ready: managers, dates, routes");
+                else _log("RoundUp profile startup error: " + profileReady);
+            }
             else
                 _log("Direct core loaded unexpected title: " + title);
         }
