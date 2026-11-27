@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "roundup-workspace-api",
+  "main": "src/worker.mjs",
+  "compatibility_date": "2026-11-27",
+  "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "roundup-shared",
+      "database_id": "REPLACE_WITH_THE_ID_RETURNED_BY_WRANGLER_D1_CREATE"
+    }
+  ]
+}
