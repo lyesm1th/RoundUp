@@ -86,7 +86,7 @@ internal sealed class WorkspaceBridge
         catch (Exception error)
         {
             int status = error is WorkspaceError webError ? webError.Status : 500;
-            string message = error is WorkspaceError ? e.Message : "Не вдалося виконати запит спільної бази";
+            string message = error is WorkspaceError ? error.Message : "Не вдалося виконати запит спільної бази";
             _log("RoundUp Workspace request error: " + status + " " + error.GetType().Name);
             try
             {
