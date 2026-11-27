@@ -465,6 +465,17 @@
     }).catch(() => { /* an unavailable cloud never blocks original RoundUp startup */ });
   }
 
+  // Refresh authorized cloud objects and revocations while the app stays open.
+  // Local ZIP/route renderers are not affected by network outages.
+  let refreshingObjects = false;
+  setInterval(async () => {
+    if (!state.user || refreshingObjects) return;
+    refreshingObjects = true;
+    try { await loadObjects(); }
+    catch (_) { /* keep the last known map while offline */ }
+    finally { refreshingObjects = false; }
+  }, 60000);
+
   // Poll notifications only after login; native Windows notifications can be added separately.
   setInterval(async () => {
     if (!state.user || state.polling) return;
