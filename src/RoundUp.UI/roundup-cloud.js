@@ -454,6 +454,17 @@
   }
   setInterval(positionPins, 550);
 
+  // On native startup, automatically show all server-authorized cloud objects.
+  // Signed-out local installations remain purely offline without prompts.
+  if (native) {
+    void request("status").then(async response => {
+      if (response.signedIn) {
+        state.user = response.user;
+        await loadObjects();
+      }
+    }).catch(() => { /* an unavailable cloud never blocks original RoundUp startup */ });
+  }
+
   // Poll notifications only after login; native Windows notifications can be added separately.
   setInterval(async () => {
     if (!state.user || state.polling) return;
