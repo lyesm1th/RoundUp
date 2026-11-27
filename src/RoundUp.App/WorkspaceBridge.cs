@@ -112,7 +112,7 @@ internal sealed class WorkspaceBridge
                     var me = await ApiAsync("GET", "/v1/me", null, _token, null);
                     return new { signedIn = true, user = me.GetProperty("user"), url = ApiBase.ToString() };
                 }
-                catch (WorkspaceError e) when (e.Status is 401 or 403)
+                catch (WorkspaceError authError) when (authError.Status is 401 or 403)
                 {
                     return new { signedIn = false, expired = true, url = ApiBase.ToString() };
                 }
