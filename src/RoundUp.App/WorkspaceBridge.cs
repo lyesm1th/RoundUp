@@ -140,6 +140,11 @@ internal sealed class WorkspaceBridge
                     return new { signedIn = true, user = new { id = result.GetProperty("userId").GetString(), display_name = displayName, role = "admin" } };
                 }
 
+            case "copyToken":
+                if (_token is null) throw new WorkspaceError(401, "Спочатку увійдіть.");
+                System.Windows.Forms.Clipboard.SetText(_token);
+                return new { copied = true };
+
             case "logout":
                 try { if (File.Exists(_tokenFile)) File.Delete(_tokenFile); }
                 catch (IOException) { throw new WorkspaceError(500, "Не вдалося видалити локальний ключ."); }
