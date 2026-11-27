@@ -29,6 +29,7 @@ internal sealed class RoundUpWindow : Form
     private Uri? _coreAddress;
     private Uri? _initialAddress;
     private string? _coreToken;
+    private WorkspaceBridge? _workspaceBridge;
     private bool _webViewReady;
     private bool _navigationStarted;
 
@@ -127,6 +128,13 @@ internal sealed class RoundUpWindow : Form
             _browser.CoreWebView2.Settings.AreDevToolsEnabled = false;
             _browser.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
             _browser.CoreWebView2.NavigationStarting += OnNavigationStarting;
+            _workspaceBridge = new WorkspaceBridge(_browser.CoreWebView2, _dataDirectory, _log);
+            _browser.CoreWebView2.WebMessageReceived += (sender, message) =>
+            {
+                // Messages must originate from our own embedded local interpreter page.
+                if (Uri.TryCreate(message.Source, UriKind.Absolute, out var source) && IsCoreAddress(source))
+                    _workspaceBridge?.OnMessage(sender, message);
+            };
             _browser.NavigationCompleted += OnNavigationCompleted;
             _webViewReady = true;
             _log("webview-ready");
@@ -190,6 +198,8 @@ internal sealed class RoundUpWindow : Form
                 "/roundup-addon.js" => "roundup-addon.js",
                 "/roundup-profiles.js" => "roundup-profiles.js",
                 "/roundup-projects.js" => "roundup-projects.js",
+                "/roundup-cloud.js" => "roundup-cloud.js",
+                "/roundup-cloud.css" => "roundup-cloud.css",
                 "/roundup-profiles.css" => "roundup-profiles.css",
                 "/favicon.svg" => "favicon.svg",
                 "/vendor/jszip.min.js" => Path.Combine("vendor", "jszip.min.js"),
