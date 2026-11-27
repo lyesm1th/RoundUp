@@ -83,11 +83,11 @@ internal sealed class WorkspaceBridge
             var result = await DispatchAsync(root);
             _web.PostWebMessageAsJson(JsonSerializer.Serialize(new { channel = "roundup-workspace-result", requestId = id, ok = true, data = result }));
         }
-        catch (Exception e)
+        catch (Exception error)
         {
-            int status = e is WorkspaceError webError ? webError.Status : 500;
-            string message = e is WorkspaceError ? e.Message : "Не вдалося виконати запит спільної бази";
-            _log("RoundUp Workspace request error: " + status + " " + e.GetType().Name);
+            int status = error is WorkspaceError webError ? webError.Status : 500;
+            string message = error is WorkspaceError ? e.Message : "Не вдалося виконати запит спільної бази";
+            _log("RoundUp Workspace request error: " + status + " " + error.GetType().Name);
             try
             {
                 _web.PostWebMessageAsJson(JsonSerializer.Serialize(new
