@@ -170,6 +170,8 @@
       await loadObjects(); renderSignedIn(); notice("Дані синхронізовано.");
     })));
     controls.append(btn("+ Об'єкт", () => showCreateObject(), "is-primary"));
+    const upload = btn("↑ Локальні точки", () => busy(upload, publishLocalPoints));
+    controls.append(upload);
     const copyKey = btn("🔑 Мій ключ", () => busy(copyKey, async () => {
       await request("copyToken");
       notice("Ключ доступу скопійовано. Збережіть його у менеджері паролів; можна ввійти з іншого ПК.");
@@ -180,7 +182,7 @@
     const stats = el("div", "ru-cloud-summary", state.objects.length + " об'єктів доступно" +
       (state.user?.role === "admin" ? " · " + state.objects.filter(o => o.status === "pending").length + " очікують призначення" : ""));
     panel.append(stats);
-    if (!state.objects.length) panel.append(el("p", "ru-cloud-muted", "Спільна база порожня. Додайте перший об'єкт. Імпорт локальних ZIP під'єднаємо окремим етапом."));
+    if (!state.objects.length) panel.append(el("p", "ru-cloud-muted", "Спільна база порожня. Додайте об’єкт або опублікуйте локальні GPS-точки кнопкою вище."));
     for (const obj of state.objects) {
       const card = btn((obj.status === "pending" ? "○ " : "● ") + safeText(obj.title) +
         (obj.status === "pending" ? " · без призначення" : ""), () => {
@@ -189,8 +191,87 @@
         }, "ru-cloud-item");
       panel.append(card);
     }
-    panel.append(el("p", "ru-cloud-footnote", "Ця панель працює з хмарною базою. Дані старого інтерпретатора поки не надсилаються автоматично."));
+    panel.append(el("p", "ru-cloud-footnote", "Локальні точки публікуються тільки після підтвердження. Фото, ZIP та маршрути поки залишаються на комп’ютері."));
   }
+
+  // Explicit, idempotent copy of local GeoZamir points into the shared database.
+  // The original ZIP, photos and desktop project remain entirely local.
+  async function stableUuid(input) {
+    if (!window.crypto?.subtle) throw new Error("Не вдалося сформувати стабільний ідентифікатор об'єкта.");
+    const digest = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+    const bytes = new Uint8Array(digest).slice(0, 16);
+    bytes[6] = (bytes[6] & 15) | 64;
+    bytes[8] = (bytes[8] & 63) | 128;
+    const hex = Array.from(bytes, x => x.toString(16).padStart(2, "0")).join("");
+    return hex.slice(0, 8) + "-" + hex.slice(8, 12) + "-" + hex.slice(12, 16) +
+      "-" + hex.slice(16, 20) + "-" + hex.slice(20);
+  }
+  function localDay(record) {
+    const fromProfile = window.RoundUpProfiles?.visitDate?.(record);
+    const value = String(fromProfile || record.geo?.at || record.exportedAt ||
+      record.images?.[0]?.date || record.date || "").slice(0, 10);
+    return /^\\d{4}-\\d{2}-\\d{2}$/.test(value) ? value : "";
+  }
+  function localTitle(record) {
+    const title = String(record.edit?.title || record.object || record.measurements?.[0]?.title ||
+      record.sourceName || "Об'єкт з архіву").trim();
+    return title.slice(0, 160).padEnd(2, " ");
+  }
+  async function publishLocalPoints() {
+    const records = (bridge.state.records || []).filter(r => r && r.id);
+    const pendingRecords = records.filter(r => Number.isFinite(Number(r.geo?.lat)) &&
+      Number.isFinite(Number(r.geo?.lng)) && r.geo?.lat != null && r.geo?.lng != null);
+    if (!pendingRecords.length) throw new Error("У поточному проєкті немає локальних точок із GPS.");
+    if (!window.confirm("Передати локальні точки до спільної бази RoundUp?\\n\\n" +
+        "Точок із геолокацією: " + pendingRecords.length +
+        ".\\nБудуть передані координати, назви, дати та текстові примітки. " +
+        "Самі фото й оригінальні ZIP залишаться на ПК.\\n" +
+        "Менеджери побачать нові об'єкти після призначення керівником.")) return;
+    const projectId = String(bridge.state.currentProjectId || "default").slice(0, 100);
+    let created = 0, already = 0, failures = 0, attempted = 0;
+    const known = new Set(state.objects.map(x => x.id));
+    // Limit each click to 100 points so an interrupted upload can be retried safely.
+    for (const record of pendingRecords) {
+      const objectId = await stableUuid("roundup-object-v1|" + projectId + "|" + record.sourceKey + "|" + record.id);
+      if (known.has(objectId)) { already++; continue; }
+      if (attempted >= 100) break;
+      attempted++;
+      const day = localDay(record);
+      const notes = [
+        "Імпортовано з локального RoundUp",
+        "Архів: " + String(record.sourceName || "невідомий"),
+        day ? "" : "Дата об'їзду невідома; дата запису в базу: " + formDate(),
+        record.meta?.comment ? "Коментар: " + String(record.meta.comment) : "",
+        record.meta?.note && record.meta.note !== record.meta.comment ?
+          "Примітка: " + String(record.meta.note) : "",
+        record.edit?.notes ? "Офісна примітка: " + String(record.edit.notes) : "",
+        record.measurements?.length ? "Замірів: " + record.measurements.length : "",
+        record.images?.length ? "Фото залишились локально: " + record.images.length : ""
+      ].filter(Boolean).join("\\n").slice(0, 3900);
+      try {
+        await api("POST", "/v1/objects", {
+          id: objectId, projectId, title: localTitle(record),
+          lat: Number(record.geo.lat), lon: Number(record.geo.lng)
+        });
+        const visitId = await stableUuid("roundup-visit-v1|" + objectId);
+        await api("POST", "/v1/objects/" + objectId + "/visits", {
+          id: visitId, visitDate: day || formDate(), note: notes
+        });
+        known.add(objectId);
+        created++;
+        notice("Передано " + created + " точок. Обробляємо " + attempted + " / " +
+          Math.min(100, pendingRecords.length - already) + "...");
+      } catch (error) {
+        failures++;
+        notice("Помилка публікації: " + safeText(error.message), true);
+      }
+    }
+    await loadObjects();
+    renderSignedIn();
+    notice("Передано: " + created + " · вже у базі: " + already + " · помилок: " + failures +
+      (records.length > attempted + already ? " · повторіть, щоб продовжити" : ""));
+  }
+
   function showCreateObject() {
     panel.replaceChildren();
     heading("Новий спільний об'єкт");
