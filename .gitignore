@@ -20,3 +20,8 @@ zamirnyk-*.zip
 bin/
 obj/
 dist/
+
+# Generated Cloudflare deployment configuration and dependencies
+cloudflare/wrangler.jsonc
+cloudflare/node_modules/
+cloudflare/.wrangler/
