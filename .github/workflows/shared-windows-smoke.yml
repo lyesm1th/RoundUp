@@ -1,0 +1,92 @@
+name: RoundUp native shared-workspace smoke test
+
+on:
+  push:
+    branches:
+      - feature/shared-workspace-phase1
+    paths:
+      - "src/RoundUp.App/**"
+      - "src/RoundUp.UI/roundup-cloud.*"
+      - "src/RoundUp.UI/index.html"
+      - ".github/workflows/shared-windows-smoke.yml"
+concurrency:
+  group: roundup-shared-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify publicly deployed Cloudflare API is reachable
+        shell: pwsh
+        run: |
+          $health = Invoke-RestMethod 'https://roundup-workspace-api.moriarty-soa.workers.dev/v1/health' -TimeoutSec 20
+          if ($health.status -ne 'ok') { throw "RoundUp shared API health failed" }
+      - name: Check the new embedded UI and original map regressions
+        shell: pwsh
+        run: |
+          node --check src/RoundUp.UI/roundup-cloud.js
+          if ($LASTEXITCODE -ne 0) { throw "Shared map UI JavaScript invalid" }
+          node scripts/test_roundup_parser.cjs
+          if ($LASTEXITCODE -ne 0) { throw "ZIP parser regression" }
+          node scripts/test_roundup_map_interaction.cjs
+          if ($LASTEXITCODE -ne 0) { throw "Route/coverage regression" }
+      - name: Build native Windows RoundUp with DPAPI workspace client
+        shell: pwsh
+        run: |
+          python scripts/build_icon.py
+          if ($LASTEXITCODE -ne 0) { throw "Icon generation failed" }
+          dotnet publish src/RoundUp.App/RoundUp.App.csproj -c Release -r win-x64 -o dist/app
+          if ($LASTEXITCODE -ne 0) { throw "RoundUp Windows build failed" }
+          Copy-Item src/RoundUp.UI dist/app/ui -Recurse -Force
+          New-Item -ItemType Directory -Force dist/app/ui/vendor | Out-Null
+          Copy-Item legacy/extracted_runtime/vendor/jszip.min.js dist/app/ui/vendor/jszip.min.js
+          $coreDir = Join-Path $env:RUNNER_TEMP 'roundup-existing-core'
+          Expand-Archive legacy/GeoZamir_5.5_GUI_Launcher_Windows.zip $coreDir -Force
+          $cores = @(Get-ChildItem $coreDir -Recurse -File -Filter 'GeoZamir.exe')
+          if ($cores.Count -ne 1) { throw "Original GeoZamir core is not found" }
+          Copy-Item $cores[0].FullName dist/app/GeoZamirCore.exe
+      - name: Verify original RoundUp starts, no additional browser or proxy
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path dist/app/RoundUp.exe).Path
+          $log = Join-Path $env:LOCALAPPDATA 'RoundUp/logs/roundup-host.log'
+          $p = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe -Parent) -PassThru
+          try {
+            $ready = $false
+            for ($i=0; $i -lt 200; $i++) {
+              Start-Sleep -Milliseconds 500
+              $p.Refresh()
+              if ($p.HasExited) { throw "RoundUp exited: $($p.ExitCode)" }
+              if (Test-Path $log) {
+                $content = Get-Content $log -Raw
+                if ($content -match 'direct-core-ui-ready:' -and $content -match 'roundup-profiles-ready:' -and $content -match 'roundup-projects-ready:') { $ready = $true; break }
+              }
+            }
+            if (-not $ready) {
+              if (Test-Path $log) { Get-Content $log -Tail 80 }
+              throw "Native UI did not start with the original engine"
+            }
+            Write-Host "Existing interpreter, map and project modules started."
+          }
+          finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+
+      - name: Downloadable RoundUp preview with shared workspace
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RoundUp-Shared-Workspace-Windows-Preview
+          path: dist/app/
+          retention-days: 14
+          if-no-files-found: error

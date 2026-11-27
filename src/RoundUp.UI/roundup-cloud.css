@@ -1,0 +1,80 @@
+/* Optional RoundUp Cloud workspace: embedded side panel, not a second topbar. */
+.ru-cloud-backdrop {
+  position: fixed; inset: 0; z-index: 1500;
+  background: rgba(9, 28, 41, .35);
+  display: flex; justify-content: flex-end;
+}
+.ru-cloud-panel {
+  width: min(510px, 100vw); height: 100%; overflow: auto;
+  background: #f8fbfc; color: #17333f; padding: 24px;
+  border-left: 1px solid #d1e4e7; box-shadow: -14px 0 50px #0b26374d;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif; box-sizing: border-box;
+}
+.ru-cloud-top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 17px; }
+.ru-cloud-top h2 { margin: 4px 0 0; font-size: 22px; letter-spacing: -.6px; color: #173441; }
+.ru-cloud-eyebrow { font-size: 10px; font-weight: 800; color: #128577; letter-spacing: 1.1px; }
+.ru-cloud-panel h3 { margin: 20px 0 10px; font-size: 19px; color: #183a49; }
+.ru-cloud-panel h4 { margin: 21px 0 10px; font-size: 13px; color: #0d6c68; text-transform: uppercase; letter-spacing: .6px; }
+.ru-cloud-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: white; color: #234955; border: 1px solid #cddfe3;
+  border-radius: 10px; padding: 11px 14px; font-size: 12px; font-weight: 700;
+  min-height: 38px; cursor: pointer; white-space: normal; text-align: center;
+}
+.ru-cloud-btn:hover:not(:disabled) { background: #eaf6f2; border-color: #9bcec2; }
+.ru-cloud-btn:disabled { opacity: .55; cursor: wait; }
+.ru-cloud-btn.is-primary { color: #063f3b; background: #a8efcb; border-color: #a1dfc4; }
+.ru-cloud-btn.is-primary:hover:not(:disabled) { background: #83dfb6; }
+.ru-cloud-btn.ru-cloud-close { padding: 4px 12px; font-size: 25px; background: transparent; border: 0; }
+.ru-cloud-panel textarea,
+.ru-cloud-panel input {
+  box-sizing: border-box; display: block; width: 100%;
+  border: 1px solid #d5e2e7; background: white; color: #173543;
+  border-radius: 10px; padding: 12px; min-height: 42px; outline: 0;
+  font: 12px/1.55 Inter, "Segoe UI", sans-serif;
+}
+.ru-cloud-panel textarea { min-height: 84px; resize: vertical; white-space: pre-wrap; }
+.ru-cloud-panel input:focus,
+.ru-cloud-panel textarea:focus { border-color: #1a9a84; box-shadow: 0 0 0 3px #1a9a841c; }
+.ru-cloud-field { display: block; margin-bottom: 15px; }
+.ru-cloud-field > span { display: block; font-size: 11px; font-weight: 750; margin-bottom: 7px; color: #41606a; }
+.ru-cloud-muted { font-size: 12px; line-height: 1.65; color: #758b92; margin: 10px 0 17px; }
+.ru-cloud-footnote { font-size: 10px; color: #68828a; margin-top: 25px; border-top: 1px solid #e4eff1; padding-top: 12px; }
+.ru-cloud-alert { padding: 0; min-height: 0; line-height: 1.5; color: #127d73; font-size: 12px; }
+.ru-cloud-alert:not(:empty) { padding: 11px; margin: 8px 0 16px; background: #e8f8ef; border-radius: 9px; }
+.ru-cloud-alert.is-error:not(:empty) { color: #9b302b; background: #fff0eb; }
+.ru-cloud-user { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #eaf6f4; border: 1px solid #d1e9e4; padding: 12px; border-radius: 12px; font-size: 12px; font-weight: 740; margin-bottom: 12px; }
+.ru-cloud-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.ru-cloud-summary { color: #6b8087; font-size: 11px; margin-bottom: 13px; font-weight: 700; }
+.ru-cloud-item {
+  display: flex; width: 100%; justify-content: flex-start; align-items: center;
+  text-align: left; background: #fff; border-color: #e2ebef;
+  margin-bottom: 7px; box-shadow: 0 4px 16px #0f354109;
+}
+.ru-cloud-item:hover { border-color: #88c8b4; }
+.ru-cloud-object-title { overflow-wrap: anywhere; }
+.ru-cloud-setup { margin-top: 35px; border-top: 1px solid #dcebee; padding-top: 14px; }
+.ru-cloud-setup summary { font-size: 12px; cursor: pointer; color: #13756c; font-weight: 700; margin-bottom: 12px; }
+.ru-cloud-check { display: flex; align-items: center; gap: 10px; padding: 9px; background: #fff; border: 1px solid #e4ecef; border-radius: 9px; margin: 7px 0; font-size: 12px; }
+.ru-cloud-check input { min-height: auto; width: 16px; height: 16px; margin: 0; accent-color: #1a967c; }
+.ru-cloud-visit { font-size: 12px; white-space: pre-wrap; line-height: 1.55; background: white; padding: 10px; border: 1px solid #e1edf0; border-radius: 9px; margin-bottom: 7px; overflow-wrap: anywhere; }
+.ru-cloud-messages { max-height: 250px; overflow: auto; padding: 9px; background: #e9f4f1; border: 1px solid #cee5dc; border-radius: 12px; margin-bottom: 12px; }
+.ru-cloud-message { background: white; padding: 10px; border-radius: 9px; margin: 7px 0; }
+.ru-cloud-message strong { display: block; color: #47747a; font-size: 10px; }
+.ru-cloud-message p { margin: 6px 0 0; font-size: 12px; color: #29444d; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ru-cloud-token-dialog { padding: 14px; background: #fff6de; border: 1px solid #e8d29d; border-radius: 12px; }
+.ru-cloud-token-dialog p { font-size: 12px; color: #6d5428; }
+.ru-cloud-token-dialog .ru-cloud-btn { margin: 8px 8px 0 0; }
+.ru-cloud-pins { position: absolute; inset: 0; z-index: 9; pointer-events: none; overflow: hidden; }
+.ru-cloud-pin {
+  position: absolute; pointer-events: auto; transform: translate(-50%, -80%);
+  min-width: 28px; width: 28px; height: 28px; padding: 0;
+  border-radius: 50%; border: 2px solid white; background: #895ad2; color: white;
+  box-shadow: 0 2px 8px #2637518c; cursor: pointer; font-size: 13px;
+}
+.ru-cloud-pin:hover { background: #7241bc; transform: translate(-50%, -80%) scale(1.15); }
+.ru-cloud-pin[hidden] { display: none; }
+@media (max-width: 640px) {
+  .ru-cloud-panel { padding: 16px; }
+  .ru-cloud-top h2 { font-size: 19px; }
+}

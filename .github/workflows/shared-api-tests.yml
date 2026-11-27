@@ -1,0 +1,32 @@
+name: RoundUp shared-workspace API checks
+
+on:
+  push:
+    branches:
+      - feature/shared-workspace-phase1
+    paths:
+      - "cloudflare/**"
+      - ".github/workflows/shared-api-tests.yml"
+  pull_request:
+    paths:
+      - "cloudflare/**"
+      - ".github/workflows/shared-api-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate Worker module syntax
+        run: node --check cloudflare/src/worker.mjs
+      - name: Run authorization and API contract tests
+        run: node --test cloudflare/tests/worker.test.mjs
+      - name: Check D1 schema with SQLite
+        run: python3 -c "import sqlite3; sqlite3.connect(':memory:').executescript(open('cloudflare/schema.sql', encoding='utf-8').read())"
