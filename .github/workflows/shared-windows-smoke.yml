@@ -9,13 +9,6 @@ on:
       - "src/RoundUp.UI/roundup-cloud.*"
       - "src/RoundUp.UI/index.html"
       - ".github/workflows/shared-windows-smoke.yml"
-  pull_request:
-    paths:
-      - "src/RoundUp.App/**"
-      - "src/RoundUp.UI/roundup-cloud.*"
-      - "src/RoundUp.UI/index.html"
-      - ".github/workflows/shared-windows-smoke.yml"
-
 permissions:
   contents: read
 
@@ -31,6 +24,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Verify publicly deployed Cloudflare API is reachable
+        shell: pwsh
+        run: |
+          $health = Invoke-RestMethod 'https://roundup-workspace-api.moriarty-soa.workers.dev/v1/health' -TimeoutSec 20
+          if ($health.status -ne 'ok') { throw "RoundUp shared API health failed" }
       - name: Check the new embedded UI and original map regressions
         shell: pwsh
         run: |
