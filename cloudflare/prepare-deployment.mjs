@@ -3,12 +3,9 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
 
 const dbName = "roundup-shared";
-const required = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "ROUNDUP_SETUP_SECRET"];
+const required = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"];
 for (const key of required) {
   if (!process.env[key]) throw new Error("GitHub Actions secret is missing: " + key);
-}
-if (process.env.ROUNDUP_SETUP_SECRET.length < 32) {
-  throw new Error("ROUNDUP_SETUP_SECRET must contain at least 32 characters");
 }
 function wrangler(...args) {
   return execFileSync("npx", ["wrangler", ...args], {
