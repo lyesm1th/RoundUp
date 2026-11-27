@@ -170,6 +170,11 @@
       await loadObjects(); renderSignedIn(); notice("Дані синхронізовано.");
     })));
     controls.append(btn("+ Об'єкт", () => showCreateObject(), "is-primary"));
+    const copyKey = btn("🔑 Мій ключ", () => busy(copyKey, async () => {
+      await request("copyToken");
+      notice("Ключ доступу скопійовано. Збережіть його у менеджері паролів; можна ввійти з іншого ПК.");
+    }));
+    controls.append(copyKey);
     if (state.user?.role === "admin") controls.append(btn("+ Менеджер", showCreateManager));
     panel.append(controls);
     const stats = el("div", "ru-cloud-summary", state.objects.length + " об'єктів доступно" +
